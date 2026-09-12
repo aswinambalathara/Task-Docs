@@ -2,6 +2,7 @@
 TaskDocs_PRD.md
 typography-system.md
 *.md
+!README.md
 
 # Dependencies
 node_modules/
