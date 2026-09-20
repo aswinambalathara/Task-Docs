@@ -14,15 +14,25 @@ import {
   ShieldCheck, 
   RefreshCw,
   CheckCircle2,
-  Cpu
+  Cpu,
+  Lock,
+  ArrowRight
 } from "lucide-react"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useAuthStore } from "@/store/useAuthStore"
 
 export default function SettingsPage() {
+  const { isAuthenticated, user, login } = useAuthStore()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [copiedToken, setCopiedToken] = React.useState(false)
   const [copiedConfig, setCopiedConfig] = React.useState(false)
   const [docId, setDocId] = React.useState("1BxiMvs0XRY5n5DCa_example_doc_id_99")
@@ -63,6 +73,45 @@ export default function SettingsPage() {
       setIsTesting(false)
       setTestSuccess(true)
     }, 1000)
+  }
+
+  if (!mounted) {
+    return (
+      <div className="container mx-auto max-w-5xl px-3 sm:px-6 lg:px-8 py-12 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-moody-blue-600 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 py-8 relative overflow-hidden">
+        <Card className="w-full max-w-md p-6 sm:p-8 rounded-3xl glass-panel border border-border/80 shadow-2xl text-center space-y-5">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-linear-to-br from-moody-blue-600 to-moody-blue-800 text-white shadow-lg mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">Sign In Required</h2>
+            <p className="text-sm text-muted-foreground">Please authenticate to configure Google Docs integration & MCP credentials.</p>
+          </div>
+          <div className="space-y-2.5 pt-2">
+            <Button
+              onClick={() => login("github")}
+              className="w-full h-11 rounded-xl bg-moody-blue-600 hover:bg-moody-blue-700 text-white font-medium text-sm"
+            >
+              Sign in with GitHub
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => login("google")}
+              className="w-full h-11 rounded-xl text-foreground font-medium text-sm"
+            >
+              Sign in with Google
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (

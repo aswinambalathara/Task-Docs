@@ -1,49 +1,54 @@
 # 📋 TaskDocs
 
 > **Automated Developer Task Tracker & Google Docs MCP Sync**  
-> *Track development tasks, record continuous contribution logs, and effortlessly sync sprint progress to Google Docs directly from your AI-assisted IDE workflow.*
+> *Track development tasks, record continuous contribution logs, and effortlessly sync sprint progress to Google Docs directly from your AI-assisted IDE workflow or web dashboard.*
 
 ---
 
 ## ⚡ Overview
 
-**TaskDocs** is a full-stack developer productivity platform engineered to eliminate context switching between writing code, managing task backlogs, and keeping engineering documentation updated.
+**TaskDocs** is a modern developer productivity platform engineered to eliminate context switching between writing code, managing task backlogs, and keeping engineering documentation updated.
 
-By pairing a modern **Next.js Web Dashboard** with a **Deterministic Model Context Protocol (MCP) Server**, TaskDocs allows AI coding assistants (such as **Cursor**, **Claude Desktop**, or **GitHub Copilot**) to capture work logs and sync directly to Google Docs without leaving your IDE.
+By pairing a responsive **Next.js 16 Web Dashboard** with a high-performance **Python FastAPI & FastMCP Server**, TaskDocs enables:
+1. **AI coding assistants** (such as **Cursor**, **Claude Desktop**, or **GitHub Copilot**) to capture work logs and sync directly to Google Docs via the Model Context Protocol (MCP).
+2. **Web & Non-AI Workflows** to automatically synthesize task history into executive summaries using **Google Gemini 2.0 Flash** before syncing to Google Docs.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │              AI Coding Assistant (MCP Client)               │
 │               (Cursor / Claude Desktop)                     │
 │   • Inspects code diffs & generates sprint summaries        │
 │   • Communicates via MCP JSON-RPC with Clerk Bearer JWT     │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP POST / SSE Transport
+                               │ MCP HTTP SSE / POST Transport
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    TaskDocs Application                     │
+│                 Python Backend (FastAPI)                    │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │ 1. Clerk Authentication & JWT Verification            │  │
-│  │    Multi-tenant isolation scoped to verified userId   │  │
+│  │ 1. Clerk Authentication & JWT Verification (PyJWT)    │  │
+│  │    Multi-tenant isolation scoped to verified user_id  │  │
 │  └───────────────────────────┬───────────────────────────┘  │
 │                              │                              │
 │  ┌───────────────────────────▼───────────────────────────┐  │
-│  │ 2. Deterministic MCP Server Layer                     │  │
-│  │    Tools: add_task | update_task | get_tasks | sync   │  │
+│  │ 2. MCP Server (FastMCP) & REST API Routes             │  │
+│  │    • Tools: add_task, update_task, get_tasks, sync    │  │
+│  │    • REST: Task CRUD, OAuth, On-demand AI Summaries   │  │
 │  └───────────────────────────┬───────────────────────────┘  │
 │                              │                              │
 │  ┌───────────────────────────▼───────────────────────────┐  │
-│  │ 3. Storage & Integration Engine                       │  │
-│  │    • MongoDB Atlas: Tasks, notes & status records     │  │
+│  │ 3. Storage, AI & Integration Engines                  │  │
+│  │    • Gemini 2.0 Flash: Hybrid executive summaries     │  │
+│  │    • MongoDB Atlas (Beanie/Motor): Tasks & notes      │  │
 │  │    • Google Docs API: Batch document formatting       │  │
 │  └───────────────────────────────────────────────────────┘  │
 └──────────────────────────────▲──────────────────────────────┘
-                               │ Session Cookie Auth
+                               │ REST API / JWT Bearer
 ┌──────────────────────────────┴──────────────────────────────┐
 │                  Developer Web Dashboard                     │
+│            (Next.js 16 + React 19 + Shadcn UI)              │
 │   • Visual Kanban & List task management                    │
-│   • Contribution timelines, filters & search                │
+│   • Smart Sync Modal with AI Summary preview & inline edit  │
 │   • Google Docs OAuth & MCP personal access token manager   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -54,14 +59,14 @@ By pairing a modern **Next.js Web Dashboard** with a **Deterministic Model Conte
 
 ### 1. 🖥️ Interactive Web Dashboard
 - **Kanban & List Views:** Flexible task organization categorized by `To Do`, `In Progress`, and `Done`.
-- **Search & Advanced Filtering:** Instant search across task titles, descriptions, and tags, with priority filters (`Low`, `Medium`, `High`, `Urgent`).
+- **Search & Advanced Filtering:** Instant search across task titles and descriptions, with priority filters (`Low`, `Medium`, `High`, `Urgent`).
 - **Contribution History:** Detailed chronological timeline logs showing incremental commits, fixes, and notes attached to each task.
 - **Design System:** Custom **Moody Blue** palette, dark/light theme switching with smooth transitions via `next-themes` and `framer-motion`.
 
-### 2. 🤖 Zero-LLM Backend MCP Server
-- **Zero Inferencing Overhead:** The backend executes **no expensive LLM calls**. Your local AI assistant reads your diffs, structures the payload, and invokes TaskDocs deterministic tools.
-- **Instant IDE Integration:** Native support for any Model Context Protocol client over SSE or stdio/HTTP.
-- **Sub-3s Sync Times:** Fast updates to your backlog and remote documents.
+### 2. 🤖 Hybrid AI Architecture (Zero Cost Primary + Flash Fallback)
+- **Zero Server Inference Overhead for IDE Users:** When using Cursor or Claude, your local assistant reads diffs, structures the payload, and invokes TaskDocs tools directly.
+- **Smart Web & Manual Summarization:** When completing tasks via the web dashboard or coding without an AI assistant, an embedded **Google Gemini 2.0 Flash** engine drafts an executive summary from your work notes.
+- **Deterministic Fail-Safe:** Clean structured template fallback ensures Google Doc sync never fails even if offline.
 
 ### 3. 📄 One-Click Google Docs Sync
 - Connect target Google Docs via Google OAuth 2.0.
@@ -71,35 +76,42 @@ By pairing a modern **Next.js Web Dashboard** with a **Deterministic Model Conte
   - Active in-progress efforts and upcoming backlog items
 
 ### 4. 🔒 Multi-Tenant Security & Isolation
-- Secured with **Clerk Authentication** (RS256 JWT validation against JWKS).
+- Secured with **Clerk Authentication** (RS256 JWT validation against Clerk JWKS).
 - Encrypted storage (AES-256-GCM) for third-party OAuth refresh tokens.
 - Strict data isolation ensuring users only query and mutate their own tasks.
 
 ---
 
-## 🛠️ MCP Tools Reference
+## 🛠️ MCP Tools Reference (FastMCP)
 
 TaskDocs exposes the following tools to connected AI assistants:
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| `add_task` | `title` (string)<br>`description` (string, optional)<br>`status` (`todo` \| `in_progress` \| `done`) | Creates a new task in the developer's backlog. |
-| `update_task` | `taskId` (string)<br>`status` (`todo` \| `in_progress` \| `done`)<br>`contributionNotes` (string, optional) | Updates task status and appends timestamped work notes. |
-| `get_tasks` | `filterStatus` (`todo` \| `in_progress` \| `done` \| `all`) | Fetches tasks for contextual retrieval inside the IDE. |
-| `sync_docs` | `executiveSummary` (string) | Batches formatted sprint updates to the configured Google Doc. |
+| `add_task` | `title` (str)<br>`description` (str, optional)<br>`priority` (`low` \| `medium` \| `high` \| `urgent`)<br>`status` (`todo` \| `in_progress` \| `done`) | Creates a new task in the developer's backlog. |
+| `update_task` | `task_id` (str)<br>`status` (`todo` \| `in_progress` \| `done`)<br>`contribution_notes` (str, optional) | Updates task status and appends timestamped work notes. |
+| `get_tasks` | `filter_status` (`todo` \| `in_progress` \| `done` \| `all`) | Fetches tasks for contextual retrieval inside the IDE. |
+| `sync_docs` | `executive_summary` (str, optional) | Batches formatted sprint updates to Google Docs (synthesizes via Gemini Flash if omitted). |
 
 ---
 
 ## 🏗️ Tech Stack
 
+### Frontend (`/frontend`)
 - **Framework:** [Next.js 16](https://nextjs.org/) (App Router, React 19, TypeScript)
-- **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) with custom `@theme` tokens
+- **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) with custom `@theme` tokens & Moody Blue palette
 - **Animations:** [Framer Motion](https://www.framer.com/motion/) & [Lucide Icons](https://lucide.dev/)
 - **State Management:** [Zustand](https://zustand-demo.pmnd.rs/)
-- **Authentication:** [Clerk](https://clerk.com/)
-- **Database:** [MongoDB Atlas](https://www.mongodb.com/atlas) (Document storage)
-- **MCP SDK:** [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol)
-- **Document API:** [`googleapis`](https://github.com/googleapis/google-api-nodejs-client)
+- **Authentication:** [Clerk React / Next SDK](https://clerk.com/)
+
+### Backend (`/backend`)
+- **Framework:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.11+, Uvicorn)
+- **Validation:** [Pydantic v2](https://docs.pydantic.dev/)
+- **MCP Server:** Anthropic Python SDK ([FastMCP](https://github.com/modelcontextprotocol/python-sdk))
+- **Database:** [MongoDB Atlas](https://www.mongodb.com/atlas) with [Beanie ODM](https://beanie-odm.dev/) & Motor
+- **AI / LLM:** Google GenAI SDK (`google-genai` / Gemini 2.0 Flash)
+- **Google Docs API:** `google-api-python-client` & `google-auth`
+- **Security:** `PyJWT` (Clerk JWKS validation) & `cryptography` (AES-256-GCM)
 
 ---
 
@@ -107,27 +119,30 @@ TaskDocs exposes the following tools to connected AI assistants:
 
 ```text
 TaskDocs/
-├── TaskDocs_PRD.md             # Full Product Requirements Document
-├── typography-system.md        # Typography scale & hierarchy guidelines
-├── README.md                   # Project documentation
-└── frontend/                   # Next.js Full-Stack Application
-    ├── src/
-    │   ├── app/
-    │   │   ├── (auth)/         # Clerk Sign-In & Sign-Up routes
-    │   │   ├── settings/       # MCP Token & Google Docs connection UI
-    │   │   ├── layout.tsx      # Root layout & theme providers
-    │   │   ├── page.tsx        # Task Kanban / List dashboard
-    │   │   └── globals.css     # Tailwind v4 theme & Moody Blue tokens
-    │   ├── components/
-    │   │   ├── layout/         # Top navigation bar
-    │   │   ├── ui/             # Reusable UI primitives (Card, Badge, Button, etc.)
-    │   │   └── task-dialog.tsx # Task creation & editing modal
-    │   ├── store/
-    │   │   └── useTaskStore.ts # Client state for tasks & filters
-    │   └── lib/
-    │       └── utils.ts        # Styling & class helper utilities
-    ├── package.json
-    └── tsconfig.json
+├── TaskDocs_PRD.md                 # Full Product Requirements Document (v3.0.0)
+├── typography-system.md            # Typography scale & hierarchy guidelines
+├── README.md                       # Project documentation
+│
+├── frontend/                       # Next.js 16 Client Application
+│   ├── src/
+│   │   ├── app/                    # App Router routes ((auth), settings, page.tsx)
+│   │   ├── components/             # Reusable UI & layout components
+│   │   ├── store/                  # Zustand client state
+│   │   └── lib/                    # API client & utilities
+│   ├── package.json
+│   └── tsconfig.json
+│
+└── backend/                        # Python FastAPI Backend & MCP Server
+    ├── app/
+    │   ├── main.py                 # FastAPI application factory & CORS
+    │   ├── core/                   # Security (JWT/AES), Config, Database
+    │   ├── models/                 # Beanie ODM models (Task, Integration)
+    │   ├── schemas/                # Pydantic request/response schemas
+    │   ├── api/                    # REST endpoints (tasks, integrations, ai)
+    │   ├── mcp/                    # FastMCP server & SSE transport
+    │   └── services/               # Gemini Flash AI & Google Docs batchUpdate
+    ├── requirements.txt
+    └── .env.example
 ```
 
 ---
@@ -135,78 +150,59 @@ TaskDocs/
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-
-- **Node.js:** v18.18.0 or higher
-- **Package Manager:** `npm`, `pnpm`, or `yarn`
+- **Node.js:** v20 or higher
+- **Python:** 3.11 or higher
 - **Clerk Account:** For authentication keys
 - **MongoDB Atlas Cluster:** (or local MongoDB instance)
+- **Google Cloud Console:** OAuth 2.0 credentials (for Docs sync)
+- **Google AI Studio Key:** (Optional, for Gemini 2.0 Flash summarization)
 
-### 2. Installation
+---
 
-Clone the repository and install dependencies inside the `frontend` workspace:
+### 2. Frontend Setup
 
 ```bash
-git clone https://github.com/your-username/TaskDocs.git
-cd TaskDocs/frontend
+cd frontend
 npm install
-```
-
-### 3. Environment Configuration
-
-Create a `.env.local` file inside the `frontend/` directory:
-
-```env
-# Clerk Authentication
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-
-# Database
-MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/taskdocs?retryWrites=true&w=majority
-
-# Google OAuth (for Google Docs Sync)
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/google/callback
-
-# Token Encryption (32-character secret for AES-256-GCM)
-ENCRYPTION_SECRET=your_32_character_encryption_key_here
-```
-
-### 4. Running Locally
-
-Start the development server:
-
-```bash
 npm run dev
 ```
+Runs at [http://localhost:3000](http://localhost:3000).
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to access the dashboard.
+---
+
+### 3. Backend Setup
+
+```bash
+cd backend
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+API & Swagger documentation will be available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
 ---
 
 ## 🔌 Connecting Cursor / Claude Desktop (MCP)
 
-To enable your AI assistant to manage tasks and push updates automatically, add TaskDocs to your MCP configuration file (e.g. `~/.cursor/mcp.json` or `claude_desktop_config.json`):
+Add TaskDocs to your MCP configuration file (e.g., `~/.cursor/mcp.json` or `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "taskdocs": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sse",
-        "http://localhost:3000/api/mcp"
-      ],
-      "env": {
-        "TASKDOCS_BEARER_TOKEN": "your_clerk_user_jwt_token_here"
+      "url": "http://localhost:8000/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer YOUR_CLERK_JWT_TOKEN"
       }
     }
   }
 }
 ```
-
-> **Tip:** You can obtain your personal MCP Bearer Token and test your Google Doc connection directly on the **/settings** page of the web application.
 
 ---
 
