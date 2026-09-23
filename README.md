@@ -1,4 +1,4 @@
-# 📋 TaskDocs
+# 📋 Tethr
 
 > **Automated Developer Task Tracker & Google Docs MCP Sync**  
 > *Track development tasks, record continuous contribution logs, and effortlessly sync sprint progress to Google Docs directly from your AI-assisted IDE workflow or web dashboard.*
@@ -7,9 +7,9 @@
 
 ## ⚡ Overview
 
-**TaskDocs** is a modern developer productivity platform engineered to eliminate context switching between writing code, managing task backlogs, and keeping engineering documentation updated.
+**Tethr** is a modern developer productivity platform engineered to eliminate context switching between writing code, managing task backlogs, and keeping engineering documentation updated.
 
-By pairing a responsive **Next.js 16 Web Dashboard** with a high-performance **Python FastAPI & FastMCP Server**, TaskDocs enables:
+By pairing a responsive **Next.js 16 Web Dashboard** with a high-performance **Python FastAPI & FastMCP Server**, Tethr enables:
 1. **AI coding assistants** (such as **Cursor**, **Claude Desktop**, or **GitHub Copilot**) to capture work logs and sync directly to Google Docs via the Model Context Protocol (MCP).
 2. **Web & Non-AI Workflows** to automatically synthesize task history into executive summaries using **Google Gemini 2.0 Flash** before syncing to Google Docs.
 
@@ -64,7 +64,7 @@ By pairing a responsive **Next.js 16 Web Dashboard** with a high-performance **P
 - **Design System:** Custom **Moody Blue** palette, dark/light theme switching with smooth transitions via `next-themes` and `framer-motion`.
 
 ### 2. 🤖 Hybrid AI Architecture (Zero Cost Primary + Flash Fallback)
-- **Zero Server Inference Overhead for IDE Users:** When using Cursor or Claude, your local assistant reads diffs, structures the payload, and invokes TaskDocs tools directly.
+- **Zero Server Inference Overhead for IDE Users:** When using Cursor or Claude, your local assistant reads diffs, structures the payload, and invokes Tethr tools directly.
 - **Smart Web & Manual Summarization:** When completing tasks via the web dashboard or coding without an AI assistant, an embedded **Google Gemini 2.0 Flash** engine drafts an executive summary from your work notes.
 - **Deterministic Fail-Safe:** Clean structured template fallback ensures Google Doc sync never fails even if offline.
 
@@ -84,7 +84,7 @@ By pairing a responsive **Next.js 16 Web Dashboard** with a high-performance **P
 
 ## 🛠️ MCP Tools Reference (FastMCP)
 
-TaskDocs exposes the following tools to connected AI assistants:
+Tethr exposes the following tools to connected AI assistants:
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
@@ -118,7 +118,7 @@ TaskDocs exposes the following tools to connected AI assistants:
 ## 📂 Project Structure
 
 ```text
-TaskDocs/
+Tethr/
 ├── TaskDocs_PRD.md                 # Full Product Requirements Document (v3.0.0)
 ├── typography-system.md            # Typography scale & hierarchy guidelines
 ├── README.md                       # Project documentation
@@ -189,12 +189,12 @@ API & Swagger documentation will be available at [http://localhost:8000/docs](ht
 
 ## 🔌 Connecting Cursor / Claude Desktop (MCP)
 
-Add TaskDocs to your MCP configuration file (e.g., `~/.cursor/mcp.json` or `claude_desktop_config.json`):
+Add Tethr to your MCP configuration file (e.g., `~/.cursor/mcp.json` or `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "taskdocs": {
+    "tethr": {
       "url": "http://localhost:8000/mcp/sse",
       "headers": {
         "Authorization": "Bearer YOUR_CLERK_JWT_TOKEN"
