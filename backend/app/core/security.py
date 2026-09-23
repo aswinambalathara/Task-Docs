@@ -43,7 +43,11 @@ async def get_current_user(
 
     # Development & test bypass when live Clerk is not configured
     if settings.DEV_MOCK_AUTH and (
-        token.startswith("mock_") or token == "clerk_mock_user_123" or token == "test_token"
+        token.startswith("mock_")
+        or token.startswith("usr_")
+        or token.startswith("user_")
+        or token == "clerk_mock_user_123"
+        or token == "test_token"
     ):
         # Extract user_id from token if provided, e.g. mock_user_456
         user_id = token if token != "test_token" else "user_mock_dev_alex"

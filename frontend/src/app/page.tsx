@@ -76,13 +76,17 @@ const priorityDetails: Record<
 }
 
 export default function DashboardPage() {
-  const { tasks, updateTask, deleteTask, toggleTaskDone, toggleSync } = useTaskStore()
+  const { tasks, fetchTasks, updateTask, deleteTask, toggleTaskDone, toggleSync } = useTaskStore()
   const { isAuthenticated, user, login } = useAuthStore()
   const mounted = React.useSyncExternalStore(
     () => () => {},
     () => true,
     () => false
   )
+
+  React.useEffect(() => {
+    fetchTasks()
+  }, [fetchTasks])
 
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | "all">("all")
