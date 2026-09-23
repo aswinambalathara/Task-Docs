@@ -50,7 +50,7 @@ export default function SignUpPage() {
               <h1 className="text-foreground text-2xl leading-[1.2] font-bold tracking-tight sm:text-3xl">
                 Create your{" "}
                 <span className="from-moody-blue-600 to-moody-blue-400 bg-linear-to-r bg-clip-text text-transparent">
-                  TaskDocs
+                  Tethr
                 </span>{" "}
                 Account
               </h1>

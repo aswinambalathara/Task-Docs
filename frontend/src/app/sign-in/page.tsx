@@ -51,7 +51,7 @@ export default function SignInPage() {
               <h1 className="text-foreground text-2xl leading-[1.2] font-bold tracking-tight sm:text-3xl">
                 Welcome back to{" "}
                 <span className="from-moody-blue-600 to-moody-blue-400 bg-linear-to-r bg-clip-text text-transparent">
-                  TaskDocs
+                  Tethr
                 </span>
               </h1>
               <p className="text-muted-foreground mx-auto max-w-xs text-sm leading-normal font-normal">
@@ -149,7 +149,7 @@ export default function SignInPage() {
 
           {/* Switch link */}
           <div className="text-muted-foreground border-border/40 border-t pt-1 text-center text-xs font-normal">
-            New to TaskDocs?{" "}
+            New to Tethr?{" "}
             <Link
               href="/sign-up"
               className="text-moody-blue-600 dark:text-moody-blue-400 font-semibold hover:underline"

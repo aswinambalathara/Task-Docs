@@ -60,7 +60,7 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: "taskdocs-auth-storage",
+      name: "tethr-auth-storage",
     }
   )
 )

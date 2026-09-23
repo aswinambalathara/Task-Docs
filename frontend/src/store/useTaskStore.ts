@@ -25,7 +25,7 @@ interface TaskState {
   toggleSync: (id: string) => void
 }
 
-// Rich initial data reflecting actual TaskDocs PRD engineering tasks
+// Rich initial data reflecting actual Tethr PRD engineering tasks
 const initialTasks: Task[] = [
   {
     id: "1",

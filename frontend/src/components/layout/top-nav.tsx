@@ -63,7 +63,7 @@ export function TopNav() {
             </div>
             <div className="flex shrink-0 flex-col">
               <span className="text-foreground group-hover:text-moody-blue-600 dark:group-hover:text-moody-blue-400 text-base font-bold tracking-tight whitespace-nowrap transition-colors">
-                TaskDocs
+                Tethr
               </span>
               <span className="text-muted-foreground hidden truncate text-xs font-normal md:inline">
                 Dev Tracker & Docs Sync

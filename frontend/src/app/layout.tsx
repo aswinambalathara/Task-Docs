@@ -10,7 +10,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "TaskDocs | Modern Dev Task Tracker & Google Docs MCP Sync",
+  title: "Tethr | Modern Dev Task Tracker & Google Docs MCP Sync",
   description:
     "Seamless engineering task manager synced in real-time with Google Docs via Anthropic Model Context Protocol (MCP).",
 }

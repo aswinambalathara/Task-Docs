@@ -37,7 +37,7 @@ export default function SettingsPage() {
 
   const mcpConfigSnippet = `{
   "mcpServers": {
-    "taskdocs": {
+    "tethr": {
       "command": "npx",
       "args": [
         "-y",
@@ -45,7 +45,7 @@ export default function SettingsPage() {
         "http://localhost:3000/api/mcp"
       ],
       "env": {
-        "TASKDOCS_BEARER_TOKEN": "clerk_sec_live_98234857a2b9"
+        "TETHR_BEARER_TOKEN": "clerk_sec_live_98234857a2b9"
       }
     }
   }
@@ -129,7 +129,7 @@ export default function SettingsPage() {
         </div>
         <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed font-normal">
           Configure Google Docs OAuth synchronization and connect your AI coding assistant (Cursor,
-          Claude Desktop, Copilot) to the TaskDocs Model Context Protocol (MCP) server.
+          Claude Desktop, Copilot) to the Tethr Model Context Protocol (MCP) server.
         </p>
       </div>
 
@@ -356,7 +356,7 @@ export default function SettingsPage() {
               <span>Zero LLM Overhead</span>
             </div>
             <p className="text-muted-foreground text-xs leading-relaxed font-normal sm:text-sm">
-              TaskDocs utilizes your local assistant (Cursor / Claude) for intelligence and acts
+              Tethr utilizes your local assistant (Cursor / Claude) for intelligence and acts
               strictly as a deterministic MCP tool pipeline.
             </p>
           </div>
