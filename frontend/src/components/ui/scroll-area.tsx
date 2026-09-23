@@ -8,14 +8,10 @@ interface ScrollAreaProps extends React.HTMLAttributes<HTMLDivElement> {
 const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(
   ({ className, children, viewportClassName, ...props }, ref) => {
     return (
-      <div
-        ref={ref}
-        className={cn("relative overflow-hidden", className)}
-        {...props}
-      >
+      <div ref={ref} className={cn("relative overflow-hidden", className)} {...props}>
         <div
           className={cn(
-            "h-full w-full overflow-y-auto overflow-x-hidden scroll-smooth",
+            "h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth",
             "scrollbar-thin",
             "[scrollbar-color:rgba(135,129,211,0.35)_transparent]",
             "[&::-webkit-scrollbar]:w-1.5",

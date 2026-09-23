@@ -151,11 +151,11 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground transition-colors duration-300 antialiased selection:bg-moody-blue-500/30 selection:text-moody-blue-200 cursor-default;
+    @apply bg-background text-foreground selection:bg-moody-blue-500/30 selection:text-moody-blue-200 cursor-default antialiased transition-colors duration-300;
     min-height: 100vh;
   }
   html {
-    @apply font-sans scroll-smooth;
+    @apply scroll-smooth font-sans;
   }
 
   /* Semantic Cursors Based on Importance & State */
@@ -224,9 +224,9 @@
 }
 
 .mesh-gradient-bg {
-  background-image: 
+  background-image:
     radial-gradient(at 0% 0%, rgba(135, 129, 211, 0.12) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(124, 111, 199, 0.10) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(124, 111, 199, 0.1) 0px, transparent 50%),
     radial-gradient(at 50% 10%, rgba(154, 154, 223, 0.08) 0px, transparent 40%);
   background-repeat: no-repeat;
   background-size: cover;
@@ -234,7 +234,7 @@
 }
 
 .dark .mesh-gradient-bg {
-  background-image: 
+  background-image:
     radial-gradient(at 0% 0%, rgba(135, 129, 211, 0.18) 0px, transparent 50%),
     radial-gradient(at 100% 100%, rgba(82, 72, 139, 0.25) 0px, transparent 50%),
     radial-gradient(at 50% 20%, rgba(124, 111, 199, 0.12) 0px, transparent 60%);
