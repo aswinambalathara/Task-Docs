@@ -23,6 +23,18 @@ class Settings(BaseSettings):
     # AES-256 Encryption key for tokens (32 bytes Base64 from environment)
     TOKEN_ENCRYPTION_KEY: str = ""
 
+    # Google OAuth 2.0 & Docs Integration
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:3000/settings"
+    GOOGLE_SCOPES: list[str] = [
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive.file",
+    ]
+
+    # Google Gemini AI Summarization (Gemini 2.0 Flash)
+    GEMINI_API_KEY: str = ""
+
     # Logging Configuration
     LOG_DIR: str = "logs"
     LOG_LEVEL: str = "INFO"

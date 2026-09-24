@@ -33,6 +33,13 @@ async def test_task_crud_lifecycle(client, user_a_headers, user_b_headers):
         "description": "Expose JSON-RPC 2.0 tools for Cursor and Claude Desktop",
         "status": "todo",
         "priority": "high",
+        "type": "Feature",
+        "project": "Chordian",
+        "area": "MCP Server",
+        "requested_by": "Engineering Lead",
+        "outcome": "Enabled agentic IDE task creation",
+        "evidence": "PR #102",
+        "is_career_highlight": True,
         "tags": ["FastAPI", "MCP", "Backend"],
         "initial_contribution": "Drafted initial specification",
     }
@@ -40,6 +47,11 @@ async def test_task_crud_lifecycle(client, user_a_headers, user_b_headers):
     assert create_resp.status_code == 201
     task_a = create_resp.json()
     assert task_a["title"] == create_payload["title"]
+    assert task_a["project"] == "Chordian"
+    assert task_a["area"] == "MCP Server"
+    assert task_a["outcome"] == "Enabled agentic IDE task creation"
+    assert task_a["evidence"] == "PR #102"
+    assert task_a["is_career_highlight"] is True
     assert task_a["user_id"] == "mock_user_alice"
     assert len(task_a["contributions"]) == 1
     assert task_a["contributions"][0]["note"] == "Drafted initial specification"
@@ -95,7 +107,38 @@ async def test_task_crud_lifecycle(client, user_a_headers, user_b_headers):
     assert filter_empty.status_code == 200
     assert not any(t["id"] == task_id for t in filter_empty.json()["items"])
 
-    # 8. User A deletes the task
+    # 8. Test developer type filtering and 422 on invalid type
+    dev_type_resp = await client.post(
+        "/api/v1/tasks",
+        headers=user_a_headers,
+        json={
+            "title": "Investigated duplicate BullMQ scheduler execution",
+            "type": "Investigation",
+            "project": "Chordian",
+        },
+    )
+    assert dev_type_resp.status_code == 201
+    dev_task_id = dev_type_resp.json()["id"]
+    assert dev_type_resp.json()["type"] == "Investigation"
+
+    # Filter by type
+    type_filter_resp = await client.get(
+        "/api/v1/tasks?type=Investigation", headers=user_a_headers
+    )
+    assert type_filter_resp.status_code == 200
+    assert any(t["id"] == dev_task_id for t in type_filter_resp.json()["items"])
+
+    # Invalid type should be rejected with 422
+    invalid_resp = await client.post(
+        "/api/v1/tasks",
+        headers=user_a_headers,
+        json={"title": "Test invalid", "type": "InvalidRandomType"},
+    )
+    assert invalid_resp.status_code == 422
+
+    await client.delete(f"/api/v1/tasks/{dev_task_id}", headers=user_a_headers)
+
+    # 9. User A deletes the task
     del_resp = await client.delete(f"/api/v1/tasks/{task_id}", headers=user_a_headers)
     assert del_resp.status_code == 204
 
