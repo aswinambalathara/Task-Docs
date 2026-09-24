@@ -15,8 +15,12 @@ out/
 frontend/out/
 
 # Environment files
-.env*
+.env
+.env.*
+.env.local
 frontend/.env*
+backend/.env*
+!**/.env.example
 
 # Logs
 npm-debug.log*

@@ -21,7 +21,8 @@ _jwks_client: PyJWKClient | None = None
 def get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        _jwks_client = PyJWKClient(settings.CLERK_JWKS_URL, cache_keys=True, max_cached_keys=16)
+        url = settings.CLERK_JWKS_URL or "https://clerk.placeholder.dev/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(url, cache_keys=True, max_cached_keys=16)
     return _jwks_client
 
 
@@ -103,13 +104,15 @@ async def get_current_user(
 
 def _get_aes_key() -> bytes:
     try:
-        key_bytes = base64.b64decode(settings.TOKEN_ENCRYPTION_KEY)
-        if len(key_bytes) != 32:
-            # Fallback pad/hash to 32 bytes for dev safety
+        if settings.TOKEN_ENCRYPTION_KEY:
+            key_bytes = base64.b64decode(settings.TOKEN_ENCRYPTION_KEY)
+            if len(key_bytes) == 32:
+                return key_bytes
             return key_bytes.ljust(32, b"0")[:32]
-        return key_bytes
     except Exception:
-        return b"thisis32bytesecretkeyforaes25600"[:32]
+        pass
+    # Fallback key for offline development/testing when no env var is set
+    return b"dev_insecure_default_key_32bytes"
 
 
 def encrypt_token(plain_text: str) -> str:

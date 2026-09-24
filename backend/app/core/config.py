@@ -16,12 +16,12 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "tethr_dev"
 
     # Clerk Authentication
-    CLERK_ISSUER: str = "https://clerk.tethr.dev"
-    CLERK_JWKS_URL: str = "https://clerk.tethr.dev/.well-known/jwks.json"
+    CLERK_ISSUER: str = ""
+    CLERK_JWKS_URL: str = ""
     DEV_MOCK_AUTH: bool = True  # Allows offline/dev mode without requiring live Clerk network calls
 
-    # AES-256 Encryption key for tokens (32 bytes Base64)
-    TOKEN_ENCRYPTION_KEY: str = "dGhpc2lzYTMydnl0ZXNlY3JldGtleWZvcmFlczI1Ng=="
+    # AES-256 Encryption key for tokens (32 bytes Base64 from environment)
+    TOKEN_ENCRYPTION_KEY: str = ""
 
     # Logging Configuration
     LOG_DIR: str = "logs"
