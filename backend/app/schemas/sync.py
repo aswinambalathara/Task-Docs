@@ -27,11 +27,16 @@ class SyncCadenceResponse(BaseModel):
 
 class SyncCadenceUpdateRequest(BaseModel):
     daily_table_cadence: Literal["realtime", "end_of_day", "weekly"] | None = Field(
-        None, description="Sync frequency for daily table: realtime on task done, end_of_day, or weekly"
+        None,
+        description="Sync frequency for daily table: realtime on task done, end_of_day, or weekly",
     )
     weekly_enabled: bool | None = Field(None, description="Enable automated weekly rollup")
-    weekly_day: Literal["Friday", "Saturday", "Sunday"] | None = Field(None, description="Day of week for rollup")
-    monthly_enabled: bool | None = Field(None, description="Enable automated month-end appraisal dossier")
+    weekly_day: Literal["Friday", "Saturday", "Sunday"] | None = Field(
+        None, description="Day of week for rollup"
+    )
+    monthly_enabled: bool | None = Field(
+        None, description="Enable automated month-end appraisal dossier"
+    )
 
 
 class IntegrationStatusResponse(BaseModel):
@@ -45,7 +50,9 @@ class IntegrationStatusResponse(BaseModel):
 
 
 class TargetDocUpdateRequest(BaseModel):
-    target_doc_id: str = Field(..., min_length=1, description="Google Doc ID or full Google Doc URL")
+    target_doc_id: str = Field(
+        ..., min_length=1, description="Google Doc ID or full Google Doc URL"
+    )
 
     @field_validator("target_doc_id")
     @classmethod
@@ -67,7 +74,8 @@ class SyncDocsRequest(BaseModel):
         None, description="Specific task IDs to sync. If omitted, syncs completed/recent tasks."
     )
     cadence_type: Literal["daily_table", "weekly_summary", "monthly_dossier", "all"] = Field(
-        default="all", description="Structure to sync: daily table, weekly rollup, monthly dossier, or all"
+        default="all",
+        description="Structure to sync: daily table, weekly rollup, monthly dossier, or all",
     )
     executive_summary: str | None = Field(
         None, description="Optional custom or AI-drafted executive summary"
@@ -76,7 +84,8 @@ class SyncDocsRequest(BaseModel):
         default=True, description="Whether to include task contribution logs"
     )
     force: bool = Field(
-        default=False, description="Bypass manual rate limiter (used by background automated cron jobs)"
+        default=False,
+        description="Bypass manual rate limiter (used by background automated cron jobs)",
     )
 
 

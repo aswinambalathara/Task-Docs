@@ -22,16 +22,24 @@ class Task(Document):
 
     # --- UNIVERSAL CORE IMPACT FIELDS ---
     date: datetime = Field(default_factory=utc_now, description="Execution date of work")
-    title: str = Field(..., min_length=1, max_length=250, description="Contribution: What did you do?")
+    title: str = Field(
+        ..., min_length=1, max_length=250, description="Contribution: What did you do?"
+    )
     description: str | None = None
     status: Literal["todo", "in_progress", "done", "blocked", "cancelled"] = "todo"
     outcome: str | None = Field(None, description="What changed because of this work?")
-    evidence: str | None = Field(None, description="Verifiable proof: PR link, commit, ticket, deployment")
-    is_career_highlight: bool = Field(default=False, description="Starred for performance reviews / brag sheet")
+    evidence: str | None = Field(
+        None, description="Verifiable proof: PR link, commit, ticket, deployment"
+    )
+    is_career_highlight: bool = Field(
+        default=False, description="Starred for performance reviews / brag sheet"
+    )
 
     # --- DEVELOPER TEMPLATE FIELDS ---
     project: str = Field(default="General", description="Project or repository name")
-    area: str | None = Field(None, description="Technical area: e.g. Auth, Enrichment, Search Portal")
+    area: str | None = Field(
+        None, description="Technical area: e.g. Auth, Enrichment, Search Portal"
+    )
     type: DeveloperTaskType = "Feature"
     priority: Literal["low", "medium", "high", "urgent"] = "medium"
     requested_by: str | None = Field(None, description="Assigned by or Self-initiated")

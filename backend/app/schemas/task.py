@@ -22,7 +22,9 @@ class ContributionResponse(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=250, description="Contribution: What did you do?")
+    title: str = Field(
+        ..., min_length=1, max_length=250, description="Contribution: What did you do?"
+    )
     date: datetime | None = Field(None, description="Date of the contribution, defaults to now")
     description: str | None = Field(None, max_length=2000, description="Detailed context")
     status: TaskStatus = Field("todo", description="Initial status")
@@ -30,13 +32,19 @@ class TaskCreate(BaseModel):
     type: TaskType = Field("Feature", description="Category of contribution")
     project: str = Field("General", description="Project or repository name")
     area: str | None = Field(None, description="Technical area: e.g. Auth, Enrichment, UI")
-    requested_by: str | None = Field(None, description="Requested by (person/team) or Self-initiated")
+    requested_by: str | None = Field(
+        None, description="Requested by (person/team) or Self-initiated"
+    )
     outcome: str | None = Field(None, description="What changed? Result or impact of the work")
-    evidence: str | None = Field(None, description="Verifiable proof: PR #, commit, ticket, deployment")
+    evidence: str | None = Field(
+        None, description="Verifiable proof: PR #, commit, ticket, deployment"
+    )
     is_career_highlight: bool = Field(False, description="Flag for review cycles and brag sheets")
     tags: list[str] = Field(default_factory=list, description="Categorization tags")
     initial_contribution: str | None = Field(None, description="Optional starting work note")
-    custom_fields: dict[str, Any] = Field(default_factory=dict, description="Forward-compatible dynamic fields")
+    custom_fields: dict[str, Any] = Field(
+        default_factory=dict, description="Forward-compatible dynamic fields"
+    )
 
 
 class TaskUpdate(BaseModel):

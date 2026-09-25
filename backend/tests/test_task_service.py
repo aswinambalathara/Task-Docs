@@ -43,7 +43,9 @@ async def test_task_service_crud_lifecycle():
     assert fetched.outcome == "Restored enrichment requests"
 
     # 3. Multi-tenant isolation (other user cannot get it)
-    other_user_fetched = await TaskService.get_task_by_id(task_id=str(task.id), user_id="other_user")
+    other_user_fetched = await TaskService.get_task_by_id(
+        task_id=str(task.id), user_id="other_user"
+    )
     assert other_user_fetched is None
 
     # 4. Add contribution

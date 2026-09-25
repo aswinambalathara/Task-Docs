@@ -238,7 +238,10 @@ class GoogleDocsService:
             cadence.week_cycle_started_at = now
 
         # Check monthly cycle rollover (calendar month)
-        if now.month != cadence.month_cycle_started_at.month or now.year != cadence.month_cycle_started_at.year:
+        if (
+            now.month != cadence.month_cycle_started_at.month
+            or now.year != cadence.month_cycle_started_at.year
+        ):
             cadence.manual_syncs_this_month = 0
             cadence.month_cycle_started_at = now
 
@@ -260,7 +263,9 @@ class GoogleDocsService:
                 cadence.manual_syncs_this_month += 1
 
         remaining_week = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_week)
-        remaining_month = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_month)
+        remaining_month = max(
+            0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_month
+        )
         return remaining_week, remaining_month
 
     @staticmethod
@@ -270,7 +275,9 @@ class GoogleDocsService:
         if the user's cadence is configured for realtime sync.
         """
         try:
-            integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+            integration = await Integration.find_one(
+                {"user_id": user_id, "provider": "google_docs"}
+            )
             if not integration or not integration.target_doc_id:
                 return False
             if integration.cadence.daily_table_cadence != "realtime":
@@ -319,11 +326,15 @@ class GoogleDocsService:
         """
         integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
         if not integration or not integration.target_doc_id:
-            raise ValueError("No target Google Doc configured. Please connect and select a doc in Settings.")
+            raise ValueError(
+                "No target Google Doc configured. Please connect and select a doc in Settings."
+            )
 
         credentials = await GoogleDocsService.get_credentials(user_id)
         if not credentials:
-            raise ValueError("Google authentication credentials are invalid or expired. Please re-authenticate.")
+            raise ValueError(
+                "Google authentication credentials are invalid or expired. Please re-authenticate."
+            )
 
         # 1. Enforce rate limiting
         rem_week, rem_month = GoogleDocsService.check_and_update_rate_limit(

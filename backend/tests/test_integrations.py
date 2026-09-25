@@ -39,7 +39,10 @@ def test_build_daily_contribution_log_table():
     table = GoogleDocsService.build_daily_contribution_log_table(tasks)
 
     assert "DAILY CONTRIBUTION LOG" in table
-    assert "| Date | Project | Area | Contribution | Type | Priority | Requested By | Status | Outcome | Evidence |" in table
+    assert (
+        "| Date | Project | Area | Contribution | Type | Priority | Requested By | Status | Outcome | Evidence |"
+        in table
+    )
     assert "Chordian" in table
     assert "Enrichment" in table
     assert "Fixed CoreSignal API parameter issue" in table
@@ -52,9 +55,7 @@ def test_rate_limit_enforcement():
         user_id="test_rate_limit_user",
         provider="google_docs",
         target_doc_id="doc_123",
-        google_tokens=GoogleTokens(
-            access_token="tok", refresh_token="ref", expiry_date=9999999999
-        ),
+        google_tokens=GoogleTokens(access_token="tok", refresh_token="ref", expiry_date=9999999999),
         cadence=SyncCadence(
             manual_syncs_this_week=0,
             manual_syncs_this_month=0,
@@ -138,7 +139,9 @@ async def test_integration_flow_with_cadence(client: AsyncClient, user_a_headers
 
     # Update target doc
     with patch.object(
-        GoogleDocsService, "get_target_doc_info", return_value={"title": "Updated Sprint Doc", "id": "new_doc_456"}
+        GoogleDocsService,
+        "get_target_doc_info",
+        return_value={"title": "Updated Sprint Doc", "id": "new_doc_456"},
     ):
         update_resp = await client.post(
             "/api/v1/integrations/google/target-doc",

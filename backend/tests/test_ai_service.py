@@ -82,7 +82,7 @@ async def test_ai_summarize_endpoint(client: AsyncClient, user_a_headers: dict):
             "description": "Standardize models on v2 base settings",
             "status": "done",
             "priority": "high",
-            "project": "TaskDocs Backend",
+            "project": "Tethr Backend",
             "type": "Improvement",
             "outcome": "Improved serialization performance",
             "evidence": "PR #12",

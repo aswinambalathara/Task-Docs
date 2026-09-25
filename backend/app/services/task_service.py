@@ -121,6 +121,8 @@ class TaskService:
 
         update_data = payload.model_dump(exclude_unset=True, exclude={"contribution_note"})
         for field, value in update_data.items():
+            if field == "is_career_highlight" and value is None:
+                continue
             setattr(task, field, value)
 
         if payload.contribution_note:

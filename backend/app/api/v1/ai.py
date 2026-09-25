@@ -19,9 +19,7 @@ async def summarize_tasks(
     Synthesizes developer tasks and contributions into a 2-sentence executive summary
     and 3 achievement bullet points using Gemini 2.0 Flash (with deterministic fallback).
     """
-    tasks = await TaskService.get_tasks_for_sync(
-        user_id=current_user.id, task_ids=payload.task_ids
-    )
+    tasks = await TaskService.get_tasks_for_sync(user_id=current_user.id, task_ids=payload.task_ids)
 
     if not tasks:
         raise HTTPException(

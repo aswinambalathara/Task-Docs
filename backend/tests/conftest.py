@@ -3,8 +3,13 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
 
+from app.core.config import settings
 from app.core.db import init_db
 from app.main import app
+
+# Ensure dedicated test key for MCP JWT in test sessions
+if not settings.MCP_JWT_SECRET:
+    settings.MCP_JWT_SECRET = "test_dedicated_mcp_secret_key"
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)

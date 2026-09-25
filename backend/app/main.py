@@ -4,9 +4,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_v1_router
-from app.core.config import settings
+from app.core.config import audit_environment, settings
 from app.core.db import close_db, init_db
 from app.core.logger import logger, setup_logging
+from app.mcp import MCPAuthContextMiddleware, mcp
 
 # Initialize Loguru multi-file logging
 setup_logging()
@@ -16,6 +17,7 @@ setup_logging()
 async def lifespan(app: FastAPI):
     # Application startup
     logger.info(f"Starting {settings.PROJECT_NAME} in {settings.ENVIRONMENT} mode...")
+    audit_environment(settings)
     try:
         await init_db()
     except Exception as e:
@@ -62,6 +64,13 @@ def create_application() -> FastAPI:
 
     # Mount API v1 routes
     app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
+    # Mount FastMCP SSE applications
+    app.mount("/mcp", mcp.sse_app(mount_path="/mcp"))
+    app.mount("", mcp.sse_app())
+
+    # Add streaming-safe ASGI MCP authentication middleware
+    app.add_middleware(MCPAuthContextMiddleware)
 
     return app
 

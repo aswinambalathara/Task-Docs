@@ -1,5 +1,5 @@
 """
-Core system and role template constants for TaskDocs/Tethr.
+Core system and role template constants for Tethr.
 """
 
 from typing import Literal

@@ -115,12 +115,18 @@ class AIService:
         lines.append(f"• {', '.join(types)}")
 
         lines.append("\n**3. Challenges Overcome & Engineering Decisions:**")
-        lines.append("• Resolved integration and edge-case exceptions through structured reproduction and testing.")
+        lines.append(
+            "• Resolved integration and edge-case exceptions through structured reproduction and testing."
+        )
         lines.append("• Refactored decoupled service boundaries to eliminate technical debt.")
 
         lines.append("\n**4. Key Learnings:**")
-        lines.append("• Strengthened knowledge of robust service contracts and asynchronous execution.")
-        lines.append("• Improved documentation of verifiable evidence for architectural milestones.")
+        lines.append(
+            "• Strengthened knowledge of robust service contracts and asynchronous execution."
+        )
+        lines.append(
+            "• Improved documentation of verifiable evidence for architectural milestones."
+        )
 
         return "\n".join(lines)
 
@@ -169,13 +175,17 @@ class AIService:
             if response.text and response.text.strip():
                 return response.text.strip(), "gemini-2.0-flash"
 
-            logger.warning("Empty response from Gemini 2.0 Flash, falling back to deterministic template.")
+            logger.warning(
+                "Empty response from Gemini 2.0 Flash, falling back to deterministic template."
+            )
             if mode == "monthly":
                 return cls.deterministic_monthly_dossier(tasks), "deterministic_fallback"
             return cls.deterministic_weekly_summary(tasks), "deterministic_fallback"
 
         except Exception as exc:
-            logger.error(f"Gemini 2.0 Flash generation failed ({exc}). Falling back to deterministic template.")
+            logger.error(
+                f"Gemini 2.0 Flash generation failed ({exc}). Falling back to deterministic template."
+            )
             if mode == "monthly":
                 return cls.deterministic_monthly_dossier(tasks), "deterministic_fallback"
             return cls.deterministic_weekly_summary(tasks), "deterministic_fallback"

@@ -122,9 +122,7 @@ async def test_task_crud_lifecycle(client, user_a_headers, user_b_headers):
     assert dev_type_resp.json()["type"] == "Investigation"
 
     # Filter by type
-    type_filter_resp = await client.get(
-        "/api/v1/tasks?type=Investigation", headers=user_a_headers
-    )
+    type_filter_resp = await client.get("/api/v1/tasks?type=Investigation", headers=user_a_headers)
     assert type_filter_resp.status_code == 200
     assert any(t["id"] == dev_task_id for t in type_filter_resp.json()["items"])
 

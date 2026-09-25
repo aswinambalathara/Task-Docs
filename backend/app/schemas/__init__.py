@@ -2,6 +2,14 @@
 Pydantic Request & Response Schemas
 """
 
+from app.schemas.mcp import (
+    AuthorizeRequest,
+    AuthorizeResponse,
+    MCPConfigResponse,
+    MCPSessionResponse,
+    TokenRequest,
+    TokenResponse,
+)
 from app.schemas.task import (
     ContributionCreate,
     ContributionResponse,
@@ -18,4 +26,10 @@ __all__ = [
     "TaskListResponse",
     "ContributionCreate",
     "ContributionResponse",
+    "AuthorizeRequest",
+    "AuthorizeResponse",
+    "TokenRequest",
+    "TokenResponse",
+    "MCPSessionResponse",
+    "MCPConfigResponse",
 ]
