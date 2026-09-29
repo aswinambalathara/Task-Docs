@@ -1,37 +1,36 @@
 "use client"
 
-import { Suspense, useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
-import { useAuthStore } from "@/store/useAuthStore"
+import * as React from "react"
+import { Suspense, useState } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { useUser, useAuth } from "@clerk/nextjs"
 import {
-  CheckCircle2,
-  ShieldCheck,
-  Cpu,
-  Copy,
   Check,
+  Copy,
   ExternalLink,
   Lock,
-  ArrowRight,
-  Sparkles,
+  HelpCircle,
   Terminal,
-  FileCode2,
+  ShieldCheck,
+  Sparkles,
+  Info,
 } from "lucide-react"
-
-function generateClientFallbackCode(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `td_auth_${crypto.randomUUID().replace(/-/g, "")}`
-  }
-  return `td_auth_fallback_session`
-}
+import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 function MCPAuthContent() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, isAuthenticated, login } = useAuthStore()
+  const { user } = useUser()
+  const { getToken, isSignedIn } = useAuth()
 
   // Query parameter extraction from AI IDEs
   const redirectUri = searchParams.get("redirect_uri") || ""
   const stateParam = searchParams.get("state") || ""
   const clientIdParam = searchParams.get("client_id") || searchParams.get("appName") || ""
+  const codeChallenge = searchParams.get("code_challenge") || ""
+  const codeChallengeMethod = searchParams.get("code_challenge_method") || "S256"
 
   // Detected client name
   const detectedClient = clientIdParam
@@ -42,58 +41,78 @@ function MCPAuthContent() {
         ? "Cursor IDE"
         : redirectUri.toLowerCase().includes("windsurf")
           ? "Windsurf"
-          : "AI Development Assistant"
+          : "AI Assistant"
 
   const [isAuthorizing, setIsAuthorizing] = useState(false)
   const [authCode, setAuthCode] = useState<string | null>(null)
+  const [mcpJwtToken, setMcpJwtToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedConfig, setCopiedConfig] = useState(false)
   const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<"antigravity" | "cursor" | "cli">("antigravity")
+  const [activeTab, setActiveTab] = useState<"cursor" | "claude" | "windsurf" | "antigravity">("cursor")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Auto-login fallback for local dev if not yet signed in
-  useEffect(() => {
-    if (!isAuthenticated) {
-      login("github")
-    }
-  }, [isAuthenticated, login])
+  const [showCodeHelp, setShowCodeHelp] = useState(false)
 
   const handleAuthorize = async () => {
+    if (!isSignedIn) {
+      const currentUrl = typeof window !== "undefined" ? window.location.href : "/auth/mcp"
+      router.push(`/sign-in?redirect_url=${encodeURIComponent(currentUrl)}`)
+      return
+    }
+
     setIsAuthorizing(true)
     setErrorMessage(null)
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-      const res = await fetch(`${apiUrl}/api/v1/mcp/authorize`, {
+      const clerkToken = await getToken()
+      if (!clerkToken) {
+        throw new Error("Could not retrieve active session. Please sign in again.")
+      }
+
+      const res = await fetch("/api/v1/mcp/authorize", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${user?.id || "user_mock_dev_alex"}`,
+          Authorization: `Bearer ${clerkToken}`,
         },
         body: JSON.stringify({
           client_id: detectedClient,
           redirect_uri: redirectUri || null,
           state: stateParam || null,
+          code_challenge: codeChallenge || null,
+          code_challenge_method: codeChallengeMethod || null,
         }),
       })
 
       if (!res.ok) {
-        // Fallback for offline demo
-        const fallbackCode = generateClientFallbackCode()
-        setAuthCode(fallbackCode)
-        triggerRedirect(fallbackCode)
-        return
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || "Authorization request rejected by server.")
       }
 
       const data = await res.json()
       setAuthCode(data.code)
-      triggerRedirect(data.code)
-    } catch {
-      // Graceful offline fallback
-      const fallbackCode = generateClientFallbackCode()
-      setAuthCode(fallbackCode)
-      triggerRedirect(fallbackCode)
+
+      // Automatically exchange for signed MCP token for manual copy
+      try {
+        const tokenRes = await fetch("/api/v1/mcp/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: data.code }),
+        })
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json()
+          setMcpJwtToken(tokenData.access_token)
+        }
+      } catch (e) {
+        console.error("Token exchange failed:", e)
+      }
+
+      if (redirectUri) {
+        triggerRedirect(data.code)
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Authorization failed."
+      setErrorMessage(message)
     } finally {
       setIsAuthorizing(false)
     }
@@ -114,7 +133,7 @@ function MCPAuthContent() {
             target += `&state=${encodeURIComponent(stateParam)}`
           }
           // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-          window.location.href = target
+          window.location.assign(target)
         }
       }, 1000)
     }
@@ -131,14 +150,15 @@ function MCPAuthContent() {
     }
   }
 
-  const antigravityConfig = JSON.stringify(
+  const tokenToDisplay = mcpJwtToken || authCode || "<YOUR_MCP_TOKEN>"
+
+  const cursorConfig = JSON.stringify(
     {
       mcpServers: {
         tethr: {
           url: "http://localhost:8000/sse",
-          transport: "sse",
           headers: {
-            Authorization: `Bearer ${authCode || "<YOUR_AUTH_CODE>"}`,
+            Authorization: `Bearer ${tokenToDisplay}`,
           },
         },
       },
@@ -147,284 +167,324 @@ function MCPAuthContent() {
     2
   )
 
-  const cursorConfig = JSON.stringify(
+  const claudeConfig = JSON.stringify(
     {
-      name: "Tethr",
-      type: "sse",
-      url: "http://localhost:8000/sse",
-      headers: {
-        Authorization: `Bearer ${authCode || "<YOUR_AUTH_CODE>"}`,
+      mcpServers: {
+        tethr: {
+          url: "http://localhost:8000/sse",
+          headers: {
+            Authorization: `Bearer ${tokenToDisplay}`,
+          },
+        },
       },
     },
     null,
     2
   )
 
-  const cliCommand = `claude mcp add --transport sse tethr http://localhost:8000/sse`
+  const windsurfConfig = JSON.stringify(
+    {
+      mcpServers: {
+        tethr: {
+          serverUrl: "http://localhost:8000/sse",
+          headers: {
+            Authorization: `Bearer ${tokenToDisplay}`,
+          },
+        },
+      },
+    },
+    null,
+    2
+  )
+
+  const antigravityConfig = JSON.stringify(
+    {
+      mcpServers: {
+        tethr: {
+          url: "http://localhost:8000/sse",
+          headers: {
+            Authorization: `Bearer ${tokenToDisplay}`,
+          },
+        },
+      },
+    },
+    null,
+    2
+  )
+
+  const getActiveConfig = () => {
+    switch (activeTab) {
+      case "cursor":
+        return cursorConfig
+      case "claude":
+        return claudeConfig
+      case "windsurf":
+        return windsurfConfig
+      case "antigravity":
+        return antigravityConfig
+    }
+  }
+
+  const getFilePath = () => {
+    switch (activeTab) {
+      case "cursor":
+        return "~/.cursor/mcp.json or project .cursor/mcp.json"
+      case "claude":
+        return "%APPDATA%/Claude/claude_desktop_config.json"
+      case "windsurf":
+        return "~/.codeium/windsurf/mcp_config.json"
+      case "antigravity":
+        return "~/.gemini/config/mcp_config.json"
+    }
+  }
 
   return (
-    <div className="relative min-h-[calc(100vh-5rem)] flex items-center justify-center p-4 sm:p-6 lg:p-8">
-      {/* Decorative Ambient Radial Glow */}
-      <div className="pointer-events-none absolute -top-20 left-1/2 -translate-x-1/2 w-96 h-96 bg-moody-blue-500/20 rounded-full blur-3xl -z-10" />
-
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 sm:p-6 bg-background">
       <div className="w-full max-w-xl">
-        {/* Main Card */}
-        <div className="bg-card/90 backdrop-blur-xl border border-moody-blue-500/20 dark:border-moody-blue-500/30 rounded-2xl shadow-2xl p-6 sm:p-8 transition-all">
-          {/* Card Header & Brand */}
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-linear-to-tr from-moody-blue-600 to-moody-blue-400 flex items-center justify-center shadow-lg shadow-moody-blue-500/25">
-                <Cpu className="w-6 h-6 text-white" />
+        <Card className="p-6 sm:p-8 space-y-6 shadow-xl border-border/80">
+          {/* Header */}
+          <div className="space-y-1.5 border-b border-border pb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" />
+                Tethr FastMCP Bridge
+              </span>
+              <span className="text-[11px] font-medium bg-muted px-2 py-0.5 rounded text-muted-foreground">
+                OAuth 2.0 PKCE
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+              Authorize AI IDE Connection
+            </h1>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Grant <span className="font-semibold text-foreground">{detectedClient}</span> secure permission to query tasks, log engineering contributions, and sync your Google Docs ledger.
+            </p>
+          </div>
+
+          {/* User identity card */}
+          <div className="flex items-center gap-3 rounded-xl border border-border p-3.5 bg-muted/20">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={
+                user?.imageUrl ||
+                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+              }
+              alt={user?.fullName || "User"}
+              className="w-10 h-10 rounded-full border border-border object-cover"
+            />
+            <div className="min-w-0 flex-1 text-xs space-y-0.5">
+              <div className="font-semibold text-foreground truncate">
+                {user?.fullName || user?.username || "Authenticated Developer"}
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-foreground tracking-tight flex items-center gap-2">
-                  Connect {detectedClient}
-                  <Sparkles className="w-4 h-4 text-moody-blue-500 animate-pulse" />
-                </h1>
-                <p className="text-xs text-muted-foreground">Model Context Protocol (MCP) Authorization</p>
+              <div className="text-muted-foreground truncate text-[11px]">
+                {user?.primaryEmailAddress?.emailAddress || "developer@tethr.dev"}
               </div>
             </div>
-
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-moody-blue-500/10 text-moody-blue-600 dark:text-moody-blue-300 border border-moody-blue-500/20">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              FastMCP v1.3
+            <span className="inline-flex items-center gap-1 text-[11px] text-success bg-success/10 font-medium px-2 py-1 rounded-full shrink-0">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Verified
             </span>
           </div>
 
-          {/* Active User Identity Info */}
-          <div className="bg-moody-blue-50/50 dark:bg-moody-blue-950/40 rounded-xl p-4 border border-moody-blue-200/50 dark:border-moody-blue-800/40 mb-6">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Authenticating As
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={
-                    user?.avatar ||
-                    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                  }
-                  alt={user?.name || "Dev"}
-                  className="w-10 h-10 rounded-full border border-moody-blue-500/30 object-cover"
-                />
-                <div>
-                  <div className="text-sm font-semibold text-foreground">
-                    {user?.name || "Alex Rivera"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {user?.email || "alex.rivera@github.dev"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <span className="inline-block text-[11px] font-mono px-2 py-0.5 rounded bg-moody-blue-500/15 text-moody-blue-700 dark:text-moody-blue-300 font-medium">
-                  {user?.workspaceName || "Acme Core Eng"}
-                </span>
-                <div className="text-[10px] text-muted-foreground mt-0.5">ID: {user?.id?.slice(0, 14)}...</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Requested Scopes & Permissions */}
-          <div className="mb-6">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          {/* Requested permissions */}
+          <div className="space-y-2.5">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
               Requested Permissions
-            </div>
-            <div className="space-y-2.5">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-card/50 border border-border/60">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <div className="text-xs">
-                  <span className="font-semibold text-foreground">Read & Write Tasks:</span>{" "}
-                  <span className="text-muted-foreground">
-                    Create, update, and search engineering tasks and contribution notes.
-                  </span>
-                </div>
+            </span>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-start gap-2.5">
+                <Check className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <span className="text-muted-foreground leading-snug">
+                  Read, search, and log engineering milestones & contribution notes.
+                </span>
               </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-card/50 border border-border/60">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <div className="text-xs">
-                  <span className="font-semibold text-foreground">Career Highlight Ledger:</span>{" "}
-                  <span className="text-muted-foreground">
-                    Flag high-impact wins and appraisal-worthy achievements.
-                  </span>
-                </div>
+              <div className="flex items-start gap-2.5">
+                <Check className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <span className="text-muted-foreground leading-snug">
+                  Star career highlight items for performance reviews and appraisals.
+                </span>
               </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-card/50 border border-border/60">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <div className="text-xs">
-                  <span className="font-semibold text-foreground">Google Docs Sync:</span>{" "}
-                  <span className="text-muted-foreground">
-                    Trigger batch updates and sync formatted tables to connected documents.
-                  </span>
-                </div>
+              <div className="flex items-start gap-2.5">
+                <Check className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <span className="text-muted-foreground leading-snug">
+                  Trigger batch updates to your configured Google Docs impact table.
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Error Message if any */}
           {errorMessage && (
-            <div className="p-3 mb-6 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+            <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
               {errorMessage}
             </div>
           )}
 
-          {/* Dual-Completion Section */}
+          {/* Action section */}
           {!authCode ? (
-            <div className="space-y-4">
-              <button
+            <div className="space-y-2.5 pt-2">
+              <Button
                 id="btn-mcp-authorize"
                 onClick={handleAuthorize}
                 disabled={isAuthorizing}
-                className="w-full py-3 px-4 rounded-xl bg-linear-to-r from-moody-blue-600 via-moody-blue-500 to-moody-blue-700 hover:from-moody-blue-500 hover:to-moody-blue-600 text-white font-medium text-sm shadow-lg shadow-moody-blue-500/25 transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full h-10 font-semibold gap-2 shadow-xs"
               >
-                {isAuthorizing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Generating Authorization Token...
-                  </>
-                ) : (
-                  <>
-                    Authorize & Connect
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-
-              <p className="text-center text-[11px] text-muted-foreground flex items-center justify-center gap-1.5">
-                <Lock className="w-3 h-3" />
-                Tokens are encrypted and scoped strictly to your user session.
-              </p>
+                <Terminal className="h-4 w-4" />
+                <span>{isAuthorizing ? "Generating Credentials..." : "Authorize AI Assistant"}</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => router.push("/")}
+                className="w-full text-xs text-muted-foreground hover:text-foreground"
+              >
+                Cancel and return to dashboard
+              </Button>
             </div>
           ) : (
-            <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {/* Success Banner */}
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
-                <div className="flex items-center gap-2 font-semibold text-sm">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Authorization Approved!
-                </div>
+            <div className="space-y-5 pt-2">
+              <div className="p-3.5 rounded-xl bg-success/10 border border-success/30 text-xs text-success space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <Check className="h-4 w-4" />
+                  Authorization Approved
+                </p>
                 {redirectCountdown !== null && redirectCountdown > 0 ? (
-                  <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-1">
-                    Hands-free redirect active: returning to {detectedClient} in {redirectCountdown}s...
+                  <p className="text-muted-foreground text-[11px]">
+                    Redirecting back to <span className="font-semibold text-foreground">{detectedClient}</span> in {redirectCountdown}s...
                   </p>
                 ) : (
-                  <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-1">
-                    Copy the one-time code below or paste the configuration snippet into your IDE.
+                  <p className="text-muted-foreground text-[11px]">
+                    Your authorization code and ready-to-use IDE configurations are generated below.
                   </p>
                 )}
               </div>
 
-              {/* Code Box for Manual Entry */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  One-Time Authorization Code (Valid for 10 mins)
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 font-mono text-xs sm:text-sm bg-muted/80 border border-border px-3.5 py-2.5 rounded-lg text-foreground select-all break-all">
-                    {authCode}
-                  </div>
+              {/* One-Time Code Box & Explanation */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">
+                    One-Time Authorization Code
+                  </span>
                   <button
-                    id="btn-copy-code"
-                    onClick={() => copyToClipboard(authCode)}
-                    className="p-2.5 rounded-lg bg-moody-blue-600 text-white hover:bg-moody-blue-500 transition-colors shadow-sm flex items-center justify-center cursor-pointer shrink-0"
-                    title="Copy code"
+                    type="button"
+                    onClick={() => setShowCodeHelp(!showCodeHelp)}
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-1 font-medium cursor-pointer"
                   >
-                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    <HelpCircle className="h-3 w-3" />
+                    <span>What is this code?</span>
                   </button>
                 </div>
+
+                {/* Helpful Explainer for the user */}
+                {showCodeHelp && (
+                  <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-foreground space-y-1.5 leading-relaxed">
+                    <p className="font-semibold flex items-center gap-1.5 text-primary">
+                      <Info className="h-3.5 w-3.5" />
+                      How does this code work?
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      <strong>1. If launched by an IDE:</strong> The IDE opens this browser tab and waits for this code. Clicking &quot;Return to IDE&quot; passes it automatically, and the IDE exchanges it for a permanent session token.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      <strong>2. If configuring manually:</strong> You don&apos;t even have to exchange this code! We already exchanged it for you in the background and injected the resulting token directly into the copy-paste configuration snippets below.
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-muted border border-border rounded-xl font-mono text-sm tracking-wider text-center p-3 select-all break-all font-semibold">
+                  {authCode}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyToClipboard(authCode)}
+                  className="w-full gap-1.5 text-xs h-8"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copied ? "Copied Authorization Code" : "Copy Code"}</span>
+                </Button>
               </div>
 
-              {/* IDE Setup Tabs */}
-              <div className="pt-2 border-t border-border/60">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-xs font-semibold text-muted-foreground">IDE Configuration Setup</span>
-                  <button
-                    onClick={() =>
-                      copyToClipboard(
-                        activeTab === "antigravity"
-                          ? antigravityConfig
-                          : activeTab === "cursor"
-                            ? cursorConfig
-                            : cliCommand,
-                        true
-                      )
-                    }
-                    className="text-[11px] text-moody-blue-600 dark:text-moody-blue-400 hover:underline flex items-center gap-1 cursor-pointer font-medium"
+              {/* IDE setup snippets with Tabs */}
+              <div className="pt-3 border-t border-border space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-semibold text-foreground block">
+                      Ready-to-Use IDE Configuration
+                    </span>
+                    <span className="text-[11px] text-muted-foreground font-mono">
+                      {getFilePath()}
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => copyToClipboard(getActiveConfig(), true)}
+                    className="h-7 text-xs gap-1 font-medium"
                   >
-                    {copiedConfig ? (
-                      <>
-                        <Check className="w-3 h-3" /> Copied Snippet
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" /> Copy Snippet
-                      </>
-                    )}
-                  </button>
+                    {copiedConfig ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedConfig ? "Copied" : "Copy Config"}</span>
+                  </Button>
                 </div>
 
-                <div className="flex gap-1.5 bg-muted/60 p-1 rounded-lg mb-3">
-                  <button
-                    onClick={() => setActiveTab("antigravity")}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      activeTab === "antigravity"
-                        ? "bg-card text-foreground shadow-xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <FileCode2 className="w-3 h-3" /> Antigravity
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("cursor")}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      activeTab === "cursor"
-                        ? "bg-card text-foreground shadow-xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <Cpu className="w-3 h-3" /> Cursor
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("cli")}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      activeTab === "cli"
-                        ? "bg-card text-foreground shadow-xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <Terminal className="w-3 h-3" /> Claude Code
-                  </button>
+                {/* Tabs */}
+                <div className="bg-muted rounded-lg p-1 grid grid-cols-4 gap-1 text-xs font-medium">
+                  {(
+                    [
+                      { id: "cursor", label: "Cursor" },
+                      { id: "claude", label: "Claude" },
+                      { id: "windsurf", label: "Windsurf" },
+                      { id: "antigravity", label: "AGY" },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={cn(
+                        "py-1 rounded text-center transition-all cursor-pointer select-none",
+                        activeTab === tab.id
+                          ? "bg-card text-foreground font-semibold shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
-                <pre className="p-3 bg-muted/70 rounded-lg text-[11px] font-mono text-muted-foreground overflow-x-auto border border-border/50 max-h-40 leading-relaxed">
-                  {activeTab === "antigravity" && antigravityConfig}
-                  {activeTab === "cursor" && cursorConfig}
-                  {activeTab === "cli" && cliCommand}
+                {/* Config Pre Block */}
+                <pre className="bg-muted/70 border border-border rounded-xl p-3 font-mono text-[11px] text-foreground overflow-x-auto max-h-48 leading-relaxed">
+                  {getActiveConfig()}
                 </pre>
               </div>
 
-              {/* Redirect Action button */}
               {redirectUri && (
-                <button
+                <Button
+                  variant="default"
                   onClick={() => {
                     const delimiter = redirectUri.includes("?") ? "&" : "?"
                     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-                    window.location.href = `${redirectUri}${delimiter}code=${encodeURIComponent(authCode)}${
-                      stateParam ? `&state=${encodeURIComponent(stateParam)}` : ""
-                    }`
+                    window.location.assign(
+                      `${redirectUri}${delimiter}code=${encodeURIComponent(authCode)}${
+                        stateParam ? `&state=${encodeURIComponent(stateParam)}` : ""
+                      }`
+                    )
                   }}
-                  className="w-full py-2.5 px-3 rounded-lg border border-moody-blue-500/30 text-moody-blue-600 dark:text-moody-blue-300 hover:bg-moody-blue-500/10 text-xs font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full text-xs gap-1.5 h-9 font-semibold"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  Return to {detectedClient} now
-                </button>
+                  <span>Return to {detectedClient}</span>
+                </Button>
               )}
             </div>
           )}
-        </div>
+
+          <div className="text-center text-[11px] text-muted-foreground flex items-center justify-center gap-1.5 pt-2 border-t border-border/60">
+            <Lock className="w-3.5 h-3.5" />
+            <span>Authenticated session via Clerk · End-to-End Encrypted</span>
+          </div>
+        </Card>
       </div>
     </div>
   )
@@ -435,7 +495,7 @@ export default function MCPAuthPage() {
     <Suspense
       fallback={
         <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-moody-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       }
     >

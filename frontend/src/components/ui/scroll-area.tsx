@@ -13,12 +13,12 @@ const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(
           className={cn(
             "h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth",
             "scrollbar-thin",
-            "[scrollbar-color:rgba(135,129,211,0.35)_transparent]",
+            "[scrollbar-color:var(--border)_transparent]",
             "[&::-webkit-scrollbar]:w-1.5",
             "[&::-webkit-scrollbar-track]:bg-transparent",
             "[&::-webkit-scrollbar-thumb]:rounded-full",
-            "[&::-webkit-scrollbar-thumb]:bg-moody-blue-400/40 dark:[&::-webkit-scrollbar-thumb]:bg-moody-blue-600/40",
-            "hover:[&::-webkit-scrollbar-thumb]:bg-moody-blue-500",
+            "[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30",
+            "hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/50",
             "[&::-webkit-scrollbar-button]:hidden",
             "[&::-webkit-scrollbar-button]:size-0",
             viewportClassName

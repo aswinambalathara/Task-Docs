@@ -1,24 +1,43 @@
 "use client"
 
 import * as React from "react"
-import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-
-import { Button } from "@/components/ui/button"
+import { Monitor, Moon, Sun } from "lucide-react"
 
 export function ThemeToggle() {
-  const { setTheme, theme } = useTheme()
+  const { theme, setTheme } = useTheme()
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  )
+
+  if (!mounted) {
+    return (
+      <div className="h-8 w-8 rounded-md" aria-hidden="true" />
+    )
+  }
+
+  const cycleTheme = () => {
+    if (theme === "light") setTheme("dark")
+    else if (theme === "dark") setTheme("system")
+    else setTheme("light")
+  }
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-      className="rounded-full"
+    <button
+      type="button"
+      onClick={cycleTheme}
+      aria-label={`Current theme: ${theme}. Click to switch theme.`}
+      className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:ring-2"
     >
-      <Sun className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-      <Moon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-      <span className="sr-only">Toggle theme</span>
-    </Button>
+      {theme === "dark" ? (
+        <Moon className="h-4 w-4" />
+      ) : theme === "light" ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Monitor className="h-4 w-4" />
+      )}
+    </button>
   )
 }
