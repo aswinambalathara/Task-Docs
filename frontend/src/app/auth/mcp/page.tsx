@@ -92,23 +92,25 @@ function MCPAuthContent() {
       const data = await res.json()
       setAuthCode(data.code)
 
-      // Automatically exchange for signed MCP token for manual copy
-      try {
-        const tokenRes = await fetch("/api/v1/mcp/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: data.code }),
-        })
-        if (tokenRes.ok) {
-          const tokenData = await tokenRes.json()
-          setMcpJwtToken(tokenData.access_token)
-        }
-      } catch (e) {
-        console.error("Token exchange failed:", e)
-      }
-
       if (redirectUri) {
+        // IDE-initiated OAuth: the code is single-use and the IDE exchanges it itself
+        // (with its PKCE verifier), so it must not be redeemed here.
         triggerRedirect(data.code)
+      } else {
+        // Manual setup: exchange the code now so the config snippets contain a real token
+        try {
+          const tokenRes = await fetch("/api/v1/mcp/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: data.code }),
+          })
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json()
+            setMcpJwtToken(tokenData.access_token)
+          }
+        } catch (e) {
+          console.error("Token exchange failed:", e)
+        }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Authorization failed."
@@ -150,7 +152,8 @@ function MCPAuthContent() {
     }
   }
 
-  const tokenToDisplay = mcpJwtToken || authCode || "<YOUR_MCP_TOKEN>"
+  // An authorization code is not a bearer token, so never put it in the config snippets
+  const tokenToDisplay = mcpJwtToken || "<YOUR_MCP_TOKEN>"
 
   const cursorConfig = JSON.stringify(
     {
