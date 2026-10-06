@@ -3,11 +3,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.oauth import oauth_router
 from app.api.v1 import api_v1_router
 from app.core.config import audit_environment, settings
 from app.core.db import close_db, init_db
 from app.core.logger import logger, setup_logging
-from app.mcp import MCPAuthContextMiddleware, mcp
+from app.mcp import mcp, setup_mcp_mounting
 
 # Initialize Loguru multi-file logging
 setup_logging()
@@ -25,7 +26,9 @@ async def lifespan(app: FastAPI):
             f"Could not connect to MongoDB on startup ({e}). If running offline or in unit tests, this is expected."
         )
 
-    yield
+    # Start FastMCP Streamable HTTP session manager for modern MCP clients
+    async with mcp.session_manager.run():
+        yield
 
     # Application shutdown
     logger.info(f"Shutting down {settings.PROJECT_NAME}...")
@@ -62,15 +65,12 @@ def create_application() -> FastAPI:
             "environment": settings.ENVIRONMENT,
         }
 
-    # Mount API v1 routes
+    # Mount REST and OAuth discovery routers
     app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+    app.include_router(oauth_router)
 
-    # Mount FastMCP SSE applications
-    app.mount("/mcp", mcp.sse_app(mount_path="/mcp"))
-    app.mount("", mcp.sse_app())
-
-    # Add streaming-safe ASGI MCP authentication middleware
-    app.add_middleware(MCPAuthContextMiddleware)
+    # Mount FastMCP dual-protocol ASGI sub-applications & streaming auth middleware
+    setup_mcp_mounting(app)
 
     return app
 

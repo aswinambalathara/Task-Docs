@@ -37,6 +37,7 @@ class Integration(Document):
     target_doc_title: str | None = None
     google_tokens: GoogleTokens
     cadence: SyncCadence = Field(default_factory=SyncCadence)
+    cached_summaries: dict[str, str] = Field(default_factory=dict)
     updated_at: datetime = Field(default_factory=utc_now)
 
     class Settings:

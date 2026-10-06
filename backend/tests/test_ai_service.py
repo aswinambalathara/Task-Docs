@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
 from app.models.task import Contribution, Task
 from app.services.ai_service import AIService
 
@@ -55,7 +56,8 @@ def test_deterministic_monthly_dossier():
 
 
 @pytest.mark.asyncio
-async def test_ai_service_fallback_without_key():
+async def test_ai_service_fallback_without_key(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
     tasks = [
         Task(
             user_id="user_ai_test",

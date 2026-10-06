@@ -88,6 +88,12 @@ def test_rate_limit_enforcement():
     rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration, force=True)
     assert rem_w == 0
 
+    # Ensure offset-naive datetimes from MongoDB BSON do not raise TypeError
+    integration.cadence.week_cycle_started_at = datetime.now()  # Naive (no tzinfo)
+    integration.cadence.month_cycle_started_at = datetime.now()  # Naive (no tzinfo)
+    rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration, force=True)
+    assert rem_w == 0
+
 
 @pytest.mark.asyncio
 async def test_get_integration_status_disconnected(client: AsyncClient, user_a_headers: dict):
@@ -162,6 +168,27 @@ async def test_integration_flow_with_cadence(client: AsyncClient, user_a_headers
     assert cadence_data["daily_table_cadence"] == "end_of_day"
     assert cadence_data["weekly_day"] == "Friday"
 
+    # Create new Google Doc via API
+    with patch.object(
+        GoogleDocsService,
+        "create_ledger_document",
+        return_value={
+            "doc_id": "auto_created_doc_789",
+            "title": "Tethr — Developer Contribution Ledger",
+            "doc_url": "https://docs.google.com/document/d/auto_created_doc_789/edit",
+        },
+    ):
+        create_doc_resp = await client.post(
+            "/api/v1/integrations/google/create-doc",
+            headers=user_a_headers,
+            json={"title": "Tethr — Developer Contribution Ledger"},
+        )
+        assert create_doc_resp.status_code == 200
+        doc_data = create_doc_resp.json()
+        assert doc_data["success"] is True
+        assert doc_data["doc_id"] == "auto_created_doc_789"
+        assert "auto_created_doc_789" in doc_data["doc_url"]
+
     # Disconnect
     del_resp = await client.delete("/api/v1/integrations/google/disconnect", headers=user_a_headers)
     assert del_resp.status_code == 204
@@ -169,3 +196,226 @@ async def test_integration_flow_with_cadence(client: AsyncClient, user_a_headers
     # Status should now be disconnected
     post_del_resp = await client.get("/api/v1/integrations/google/status", headers=user_a_headers)
     assert post_del_resp.json()["connected"] is False
+
+
+def test_weekly_and_monthly_summary_scheduling_edge_cases():
+    from datetime import date
+
+    # Week: Monday Jan 5, 2026 to Sunday Jan 11, 2026
+    week = {
+        "week_num": 2,
+        "start_date": date(2026, 1, 5),
+        "end_date": date(2026, 1, 11),
+    }
+
+    # Case 1: Weekly enabled with Friday as preferred day (Friday is Jan 9, 2026)
+    cadence_friday = SyncCadence(weekly_enabled=True, weekly_day="Friday")
+
+    # Before preferred day (Thursday Jan 8) -> should NOT render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_friday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 8),
+        )
+        is False
+    )
+
+    # On preferred day (Friday Jan 9) -> SHOULD render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_friday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 9),
+        )
+        is True
+    )
+
+    # After preferred day (Saturday Jan 10) -> SHOULD render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_friday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 10),
+        )
+        is True
+    )
+
+    # Completed past week (e.g. today is Jan 15) -> SHOULD render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_friday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 15),
+        )
+        is True
+    )
+
+    # Future week (today is Jan 2) -> should NOT render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_friday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 2),
+        )
+        is False
+    )
+
+    # Case 2: Weekly disabled
+    cadence_disabled = SyncCadence(weekly_enabled=False, weekly_day="Friday")
+    # Even on preferred day or after week ended, automated daily sync will NOT render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_disabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 9),
+        )
+        is False
+    )
+    # But manual trigger on target week SHOULD render
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_disabled,
+            cadence_type="weekly_summary",
+            today=date(2026, 1, 8),
+            is_target_week=True,
+        )
+        is True
+    )
+    # And cached summary SHOULD be preserved
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week,
+            cadence=cadence_disabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 8),
+            has_cached_summary=True,
+        )
+        is True
+    )
+
+    # Case 3: Week slice where preferred day doesn't exist (e.g. Week 5 is Mon Jan 26 to Sat Jan 31; preferred is Sunday)
+    week_short = {
+        "week_num": 5,
+        "start_date": date(2026, 1, 26),
+        "end_date": date(2026, 1, 31),
+    }
+    cadence_sunday = SyncCadence(weekly_enabled=True, weekly_day="Sunday")
+    # Sunday doesn't exist in Jan 26-Jan 31 (Sunday is Feb 1), so falls back to week end_date (Jan 31)
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week_short,
+            cadence=cadence_sunday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 30),
+        )
+        is False
+    )
+    assert (
+        GoogleDocsService.should_render_weekly_summary(
+            week=week_short,
+            cadence=cadence_sunday,
+            cadence_type="daily_table",
+            today=date(2026, 1, 31),
+        )
+        is True
+    )
+
+    # Case 4: Monthly Summary Scheduling
+    cadence_month_enabled = SyncCadence(monthly_enabled=True)
+
+    # Mid-month (Jan 15, 2026) -> should NOT render monthly summary
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_enabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 15),
+        )
+        is False
+    )
+
+    # End of month (Jan 31, 2026) -> SHOULD render monthly summary
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_enabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 31),
+        )
+        is True
+    )
+
+    # Past completed month (e.g. evaluating Jan 2026 when today is Feb 10, 2026) -> SHOULD render
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_enabled,
+            cadence_type="daily_table",
+            today=date(2026, 2, 10),
+        )
+        is True
+    )
+
+    # Future month (e.g. evaluating March 2026 when today is Jan 15, 2026) -> should NOT render
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=3,
+            cadence=cadence_month_enabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 15),
+        )
+        is False
+    )
+
+    # Case 5: Monthly disabled
+    cadence_month_disabled = SyncCadence(monthly_enabled=False)
+    # Automated daily sync at end of month -> should NOT render
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_disabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 31),
+        )
+        is False
+    )
+
+    # Manual trigger for target month -> SHOULD render
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_disabled,
+            cadence_type="monthly_dossier",
+            today=date(2026, 1, 15),
+            is_target_month=True,
+        )
+        is True
+    )
+
+    # Cached monthly summary -> SHOULD be preserved
+    assert (
+        GoogleDocsService.should_render_monthly_summary(
+            year=2026,
+            month=1,
+            cadence=cadence_month_disabled,
+            cadence_type="daily_table",
+            today=date(2026, 1, 15),
+            has_cached_summary=True,
+        )
+        is True
+    )
+

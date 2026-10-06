@@ -11,6 +11,7 @@ class GoogleAuthUrlResponse(BaseModel):
 class GoogleCallbackRequest(BaseModel):
     code: str = Field(..., min_length=1, description="OAuth authorization code returned by Google")
     state: str | None = Field(None, description="OAuth state parameter for CSRF mitigation")
+    code_verifier: str | None = Field(None, description="Optional PKCE code verifier")
 
 
 class SyncCadenceResponse(BaseModel):
@@ -99,3 +100,19 @@ class SyncDocsResponse(BaseModel):
     remaining_manual_syncs_week: int = 2
     remaining_manual_syncs_month: int = 2
     message: str = "Sprint updates synchronized successfully"
+
+
+class CreateDocRequest(BaseModel):
+    title: str | None = Field(
+        default="Tethr — Developer Contribution Ledger",
+        description="Optional custom title for the new Google Doc",
+    )
+
+
+class CreateDocResponse(BaseModel):
+    success: bool = True
+    doc_id: str
+    title: str
+    doc_url: str
+    message: str = "Google Doc created and linked successfully"
+

@@ -186,3 +186,24 @@ async def test_mcp_config_endpoint(client):
     assert "antigravity" in data["recommended_clients"]
     assert "cursor" in data["recommended_clients"]
     assert "claude_code" in data["recommended_clients"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_metadata_endpoints(client):
+    """
+    Tests RFC 9728 and RFC 8414 OAuth metadata discovery endpoints.
+    """
+    # RFC 9728 Protected Resource Metadata
+    resp = await client.get("/.well-known/oauth-protected-resource")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "resource" in data
+    assert "authorization_servers" in data
+
+    # RFC 8414 Authorization Server Metadata
+    auth_resp = await client.get("/.well-known/oauth-authorization-server")
+    assert auth_resp.status_code == 200
+    auth_data = auth_resp.json()
+    assert "authorization_endpoint" in auth_data
+    assert "token_endpoint" in auth_data
+    assert "registration_endpoint" in auth_data

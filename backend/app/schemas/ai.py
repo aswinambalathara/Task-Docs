@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SummarizeRequest(BaseModel):
@@ -13,16 +13,25 @@ class SummarizeRequest(BaseModel):
     custom_context: str | None = Field(
         None, description="Additional context or sprint theme to guide the summary"
     )
-    mode: Literal["weekly", "monthly"] = Field(
+    mode: Literal["weekly", "monthly", "weekly_rollup", "monthly_appraisal"] = Field(
         "weekly", description="Cadence mode: weekly rollup or monthly appraisal dossier"
     )
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def normalize_mode(cls, v: str) -> str:
+        if v in ["weekly_rollup", "weekly"]:
+            return "weekly"
+        if v in ["monthly_appraisal", "monthly"]:
+            return "monthly"
+        return v
 
 
 class SummarizeResponse(BaseModel):
     executive_summary: str = Field(
         ..., description="Generated 2-sentence summary + 3 bullet points"
     )
-    source: Literal["gemini-2.0-flash", "deterministic_fallback"] = Field(
+    source: Literal["gemini-2.0-flash", "gemini-2.5-flash", "deterministic_fallback"] = Field(
         ..., description="Engine used to generate the summary"
     )
     task_count: int

@@ -7,9 +7,8 @@ from app.core.config import settings
 from app.core.db import init_db
 from app.main import app
 
-# Ensure dedicated test key for MCP JWT in test sessions
-if not settings.MCP_JWT_SECRET:
-    settings.MCP_JWT_SECRET = "test_dedicated_mcp_secret_key"
+# Ensure test environment settings
+settings.DEV_MOCK_AUTH = True
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
