@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
+    # Application Base URLs
+    BACKEND_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # MongoDB Atlas Settings
     MONGODB_URL: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "tethr_dev"
@@ -19,7 +23,10 @@ class Settings(BaseSettings):
     # Clerk Authentication
     CLERK_ISSUER: str = ""
     CLERK_JWKS_URL: str = ""
-    DEV_MOCK_AUTH: bool = True  # Allows offline/dev mode without requiring live Clerk network calls
+    # Frontend origins whose Clerk tokens are accepted (checked against the `azp` claim).
+    # Empty = use CORS_ORIGINS.
+    CLERK_AUTHORIZED_PARTIES: list[str] = []
+    DEV_MOCK_AUTH: bool = False  # Allows offline/dev mode without requiring live Clerk network calls
 
     # AES-256 Encryption key for tokens (32 bytes Base64 from environment)
     TOKEN_ENCRYPTION_KEY: str = ""
@@ -43,10 +50,13 @@ class Settings(BaseSettings):
     LOG_ROTATION: str = "20 MB"
 
     # Model Context Protocol (MCP) Configuration
-    MCP_SSE_URL: str = "http://localhost:8000/sse"
-    MCP_JWT_SECRET: str = ""
+    MCP_SSE_URL: str = ""
     MCP_AUTH_CODE_TTL_SECONDS: int = 600  # 10 minutes
     MCP_TOKEN_EXPIRATION_SECONDS: int = 2592000  # 30 days
+    MCP_REFRESH_TOKEN_EXPIRATION_SECONDS: int = 7776000  # 90 days
+
+    # Scheduled Google Docs syncs (in-process scheduler loop)
+    AUTO_SYNC_ENABLED: bool = True
 
     # CORS configuration
     CORS_ORIGINS: list[str] = [
@@ -54,7 +64,36 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @property
+    def effective_mcp_sse_url(self) -> str:
+        return self.MCP_SSE_URL or f"{self.BACKEND_URL}/sse"
+
+    @property
+    def clerk_authorized_parties(self) -> set[str]:
+        parties = self.CLERK_AUTHORIZED_PARTIES or self.CORS_ORIGINS
+        return {p.rstrip("/") for p in parties}
+
+    @property
+    def oauth_resource_url(self) -> str:
+        return f"{self.BACKEND_URL}/sse"
+
+    @property
+    def oauth_issuer_url(self) -> str:
+        return self.BACKEND_URL
+
+    @property
+    def oauth_authorization_url(self) -> str:
+        return f"{self.FRONTEND_URL}/auth/mcp"
+
+    @property
+    def oauth_token_url(self) -> str:
+        return f"{self.BACKEND_URL}{self.API_V1_STR}/mcp/token"
+
+    @property
+    def oauth_registration_url(self) -> str:
+        return f"{self.BACKEND_URL}{self.API_V1_STR}/mcp/register"
+
+    @field_validator("CORS_ORIGINS", "CLERK_AUTHORIZED_PARTIES", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str):
@@ -101,12 +140,6 @@ def audit_environment(cfg: Settings) -> None:
             "TOKEN_ENCRYPTION_KEY",
             "AES-256 key for Google OAuth tokens at rest",
             bool(cfg.TOKEN_ENCRYPTION_KEY),
-            is_critical=True,
-        ),
-        EnvCheckItem(
-            "MCP_JWT_SECRET",
-            "Cryptographic key for signing IDE MCP session tokens",
-            bool(cfg.MCP_JWT_SECRET),
             is_critical=True,
         ),
         # Authentication (Critical unless DEV_MOCK_AUTH is True)

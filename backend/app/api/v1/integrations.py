@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.security import AuthenticatedUser, get_current_user
 from app.models.integration import Integration
 from app.schemas.sync import (
+    CreateDocRequest,
+    CreateDocResponse,
     GoogleAuthUrlResponse,
     GoogleCallbackRequest,
     IntegrationStatusResponse,
@@ -31,6 +33,7 @@ def _to_cadence_response(integration: Integration) -> tuple[SyncCadenceResponse,
         max_manual_syncs_per_cycle=cadence.max_manual_syncs_per_cycle,
         last_weekly_sync_at=cadence.last_weekly_sync_at,
         last_monthly_sync_at=cadence.last_monthly_sync_at,
+        timezone=cadence.timezone,
     )
     rem_week = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_week)
     rem_month = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_month)
@@ -60,8 +63,13 @@ async def handle_google_callback(
     """
     try:
         integration = await GoogleDocsService.exchange_code_for_tokens(
-            user_id=current_user.id, code=payload.code
+            user_id=current_user.id,
+            code=payload.code,
+            code_verifier=payload.code_verifier,
         )
+        if payload.timezone and payload.timezone != integration.cadence.timezone:
+            integration.cadence.timezone = payload.timezone
+            await integration.save()
         cadence_resp, rem_w, rem_m = _to_cadence_response(integration)
         return IntegrationStatusResponse(
             connected=True,
@@ -133,6 +141,38 @@ async def update_target_doc(
     )
 
 
+@router.post("/create-doc", response_model=CreateDocResponse)
+async def create_google_doc(
+    payload: CreateDocRequest | None = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> CreateDocResponse:
+    """
+    Creates a new Google Doc in the user's Google Drive, initializes it with standard
+    Tethr headers, and saves it as the user's active target document for syncs.
+    """
+    try:
+        title = payload.title if payload else None
+        res = await GoogleDocsService.create_ledger_document(
+            user_id=current_user.id, title=title
+        )
+        return CreateDocResponse(
+            success=True,
+            doc_id=res["doc_id"],
+            title=res["title"],
+            doc_url=res["doc_url"],
+            message="Google Doc created and linked successfully",
+        )
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err)
+        ) from val_err
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create Google Doc: {str(exc)}",
+        ) from exc
+
+
 @router.patch("/cadence", response_model=IntegrationStatusResponse)
 async def update_sync_cadence(
     payload: SyncCadenceUpdateRequest,
@@ -158,6 +198,8 @@ async def update_sync_cadence(
         integration.cadence.weekly_day = payload.weekly_day
     if payload.monthly_enabled is not None:
         integration.cadence.monthly_enabled = payload.monthly_enabled
+    if payload.timezone is not None:
+        integration.cadence.timezone = payload.timezone
 
     integration.updated_at = datetime.now(UTC)
     await integration.save()
@@ -181,7 +223,7 @@ async def sync_docs(
 ) -> SyncDocsResponse:
     """
     Syncs completed sprint updates and contribution notes to the configured Google Doc.
-    Enforces maximum 2 manual syncs per cycle unless forced.
+    Summary syncs are limited to 2 per weekly and monthly cycle; table-only syncs are unlimited.
     """
     try:
         result = await GoogleDocsService.sync_sprint_to_doc(
@@ -190,7 +232,8 @@ async def sync_docs(
             cadence_type=payload.cadence_type,
             executive_summary=payload.executive_summary,
             include_contributions=payload.include_contributions,
-            force=payload.force,
+            # User requests always respect the manual sync limit
+            force=False,
         )
         return SyncDocsResponse(**result)
     except ValueError as val_err:

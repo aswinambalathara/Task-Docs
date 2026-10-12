@@ -9,6 +9,7 @@ from app.core.config import audit_environment, settings
 from app.core.db import close_db, init_db
 from app.core.logger import logger, setup_logging
 from app.mcp import mcp, setup_mcp_mounting
+from app.services.auto_sync import AutoSyncScheduler
 
 # Initialize Loguru multi-file logging
 setup_logging()
@@ -19,12 +20,19 @@ async def lifespan(app: FastAPI):
     # Application startup
     logger.info(f"Starting {settings.PROJECT_NAME} in {settings.ENVIRONMENT} mode...")
     audit_environment(settings)
+    db_ready = False
     try:
         await init_db()
+        db_ready = True
     except Exception as e:
         logger.warning(
             f"Could not connect to MongoDB on startup ({e}). If running offline or in unit tests, this is expected."
         )
+
+    # Scheduled Google Docs syncs (end-of-day tables, weekly summaries, monthly dossiers)
+    scheduler = AutoSyncScheduler()
+    if db_ready and settings.AUTO_SYNC_ENABLED:
+        scheduler.start()
 
     # Start FastMCP Streamable HTTP session manager for modern MCP clients
     async with mcp.session_manager.run():
@@ -32,6 +40,7 @@ async def lifespan(app: FastAPI):
 
     # Application shutdown
     logger.info(f"Shutting down {settings.PROJECT_NAME}...")
+    await scheduler.stop()
     await close_db()
 
 

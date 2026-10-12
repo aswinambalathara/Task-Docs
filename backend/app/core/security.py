@@ -26,6 +26,31 @@ def get_jwks_client() -> PyJWKClient:
     return _jwks_client
 
 
+def decode_clerk_token(token: str) -> dict[str, Any]:
+    """
+    Verifies a Clerk RS256 session JWT and returns its claims.
+    Raises jwt.ExpiredSignatureError / jwt.InvalidTokenError (or a JWKS fetch error) if invalid.
+    """
+    signing_key = get_jwks_client().get_signing_key_from_jwt(token)
+    payload = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        issuer=settings.CLERK_ISSUER,
+        leeway=60,
+        options={"verify_exp": True, "verify_iss": True, "verify_iat": False},
+    )
+
+    # `azp` (authorized party) is the origin of the site the token was issued to. Rejecting
+    # unknown origins stops tokens from other apps on the same Clerk instance. Like Clerk's
+    # own SDKs, the check applies only when the claim is present.
+    azp = payload.get("azp")
+    if azp and azp.rstrip("/") not in settings.clerk_authorized_parties:
+        raise jwt.InvalidTokenError(f"Token was issued to an unauthorized party: {azp}")
+
+    return payload
+
+
 @dataclass
 class AuthenticatedUser:
     id: str  # Clerk user ID (e.g. user_2P9xYz...)
@@ -57,16 +82,7 @@ async def get_current_user(
         )
 
     try:
-        jwks_client = get_jwks_client()
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            issuer=settings.CLERK_ISSUER,
-            options={"verify_exp": True, "verify_iss": True},
-        )
+        payload = decode_clerk_token(token)
 
         user_id = payload.get("sub")
         if not user_id:

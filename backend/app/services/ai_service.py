@@ -137,7 +137,7 @@ class AIService:
         api_key: str | None = None,
         custom_context: str | None = None,
         mode: Literal["weekly", "monthly"] = "weekly",
-    ) -> tuple[str, Literal["gemini-2.0-flash", "deterministic_fallback"]]:
+    ) -> tuple[str, Literal["gemini-2.0-flash", "gemini-2.5-flash", "deterministic_fallback"]]:
         """
         Synthesizes tasks into an executive summary or appraisal dossier using Gemini 2.0 Flash.
         Falls back seamlessly to deterministic generation if API key is missing or call fails.
@@ -162,21 +162,26 @@ class AIService:
                 cls.MONTHLY_INSTRUCTION if mode == "monthly" else cls.WEEKLY_INSTRUCTION
             )
 
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt_content,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    max_output_tokens=350,
-                    temperature=0.2,
-                ),
-            )
-
-            if response.text and response.text.strip():
-                return response.text.strip(), "gemini-2.0-flash"
+            for model_name in ("gemini-2.0-flash", "gemini-2.5-flash"):
+                try:
+                    # Async client: a slow Gemini call must not block the event loop
+                    response = await client.aio.models.generate_content(
+                        model=model_name,
+                        contents=prompt_content,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            max_output_tokens=350,
+                            temperature=0.2,
+                        ),
+                    )
+                    if response.text and response.text.strip():
+                        return response.text.strip(), model_name
+                except Exception as model_exc:
+                    logger.warning(f"Gemini model {model_name} failed: {model_exc}")
+                    continue
 
             logger.warning(
-                "Empty response from Gemini 2.0 Flash, falling back to deterministic template."
+                "Empty or failed response from Gemini models, falling back to deterministic template."
             )
             if mode == "monthly":
                 return cls.deterministic_monthly_dossier(tasks), "deterministic_fallback"

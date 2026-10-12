@@ -29,6 +29,17 @@ class SyncCadence(BaseModel):
     week_cycle_started_at: datetime = Field(default_factory=utc_now)
     month_cycle_started_at: datetime = Field(default_factory=utc_now)
 
+    # IANA zone (e.g. "Asia/Kolkata") used for scheduling and for which day/week a task falls in
+    timezone: str = "UTC"
+
+    # Scheduled (cron) sync bookkeeping: the local period each job last completed,
+    # so restarts and multiple workers never run the same period twice
+    last_table_period: str | None = None  # "2026-10-12" (end_of_day) or "2026-W41" (weekly)
+    last_weekly_period: str | None = None  # "2026-W41"
+    last_monthly_period: str | None = None  # "2026-10"
+    auto_sync_failures: int = 0
+    auto_sync_retry_at: datetime | None = None
+
 
 class Integration(Document):
     user_id: Annotated[str, Indexed()]  # Clerk user ID

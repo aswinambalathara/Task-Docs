@@ -3,8 +3,24 @@ from typing import Any, Literal
 
 from beanie import PydanticObjectId
 
+from app.core.logger import logger
 from app.models.task import Contribution, Task
 from app.schemas.task import TaskCreate, TaskPriority, TaskStatus, TaskType, TaskUpdate
+
+
+def _schedule_realtime_sync_if_done(user_id: str, task: Task) -> None:
+    """
+    Completed tasks are pushed to the Google Doc in the background when the user's
+    daily table cadence is "realtime" (checked inside the sync).
+    """
+    if task.status != "done":
+        return
+    from app.services.google_docs import GoogleDocsService
+
+    try:
+        GoogleDocsService.schedule_realtime_sync(user_id)
+    except Exception as exc:
+        logger.warning(f"Could not schedule realtime docs sync for user {user_id}: {exc}")
 
 
 class TaskService:
@@ -44,13 +60,7 @@ class TaskService:
             updated_at=now,
         )
         await task.insert()
-        if task.status == "done":
-            try:
-                from app.services.google_docs import GoogleDocsService
-
-                await GoogleDocsService.sync_task_realtime(user_id=user_id, task=task)
-            except Exception:
-                pass
+        _schedule_realtime_sync_if_done(user_id, task)
         return task
 
     @staticmethod
@@ -119,7 +129,9 @@ class TaskService:
         if not task:
             return None
 
-        update_data = payload.model_dump(exclude_unset=True, exclude={"contribution_note"})
+        update_data = payload.model_dump(
+            exclude_unset=True, exclude={"contribution_note", "synced_to_docs"}
+        )
         for field, value in update_data.items():
             if field == "is_career_highlight" and value is None:
                 continue
@@ -128,15 +140,11 @@ class TaskService:
         if payload.contribution_note:
             task.contributions.append(Contribution(note=payload.contribution_note))
 
+        # Any content or status update marks task as unsynced
+        task.synced_to_docs = False
         task.updated_at = datetime.now(UTC)
         await task.save()
-        if task.status == "done" and not task.synced_to_docs:
-            try:
-                from app.services.google_docs import GoogleDocsService
-
-                await GoogleDocsService.sync_task_realtime(user_id=user_id, task=task)
-            except Exception:
-                pass
+        _schedule_realtime_sync_if_done(user_id, task)
         return task
 
     @staticmethod
@@ -161,8 +169,10 @@ class TaskService:
             return None
 
         task.contributions.append(Contribution(note=note))
+        task.synced_to_docs = False
         task.updated_at = datetime.now(UTC)
         await task.save()
+        _schedule_realtime_sync_if_done(user_id, task)
         return task
 
     @staticmethod
@@ -180,13 +190,21 @@ class TaskService:
                     continue
             return await Task.find({"_id": {"$in": obj_ids}, "user_id": user_id}).to_list()
 
-        # Default: all completed tasks or tasks not yet synced
-        return await Task.find({"user_id": user_id, "status": "done"}).to_list()
+        # 1. Prioritize tasks not yet synced to Google Docs
+        unsynced = await Task.find({"user_id": user_id, "synced_to_docs": False}).sort("-date").to_list()
+        if unsynced:
+            return unsynced
+
+        # 2. Fallback to all completed tasks
+        return await Task.find({"user_id": user_id, "status": "done"}).sort("-date").to_list()
 
     @staticmethod
-    async def mark_tasks_as_synced(task_ids: list[str], user_id: str) -> None:
+    async def mark_tasks_as_synced(
+        task_ids: list[str], user_id: str, unchanged_since: datetime | None = None
+    ) -> None:
         """
-        Marks the specified tasks as synced to docs.
+        Marks the specified tasks as synced to docs. With unchanged_since, tasks updated
+        after that moment are skipped so their newer content is picked up by the next sync.
         """
         obj_ids = []
         for tid in task_ids:
@@ -196,6 +214,9 @@ class TaskService:
                 continue
 
         if obj_ids:
-            await Task.find({"_id": {"$in": obj_ids}, "user_id": user_id}).update_many(
+            query: dict[str, Any] = {"_id": {"$in": obj_ids}, "user_id": user_id}
+            if unchanged_since is not None:
+                query["updated_at"] = {"$lte": unchanged_since}
+            await Task.find(query).update_many(
                 {"$set": {"synced_to_docs": True, "updated_at": datetime.now(UTC)}}
             )

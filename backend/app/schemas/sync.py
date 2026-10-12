@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.timezones import is_valid_timezone
+
 
 class GoogleAuthUrlResponse(BaseModel):
     auth_url: str = Field(..., description="Google OAuth 2.0 authorization URL")
@@ -12,6 +14,13 @@ class GoogleCallbackRequest(BaseModel):
     code: str = Field(..., min_length=1, description="OAuth authorization code returned by Google")
     state: str | None = Field(None, description="OAuth state parameter for CSRF mitigation")
     code_verifier: str | None = Field(None, description="Optional PKCE code verifier")
+    timezone: str | None = Field(None, description="Browser IANA time zone, e.g. Asia/Kolkata")
+
+    @field_validator("timezone")
+    @classmethod
+    def drop_unknown_timezone(cls, v: str | None) -> str | None:
+        # Never fail the Google connection over a bad zone; the user keeps the default (UTC)
+        return v if v and is_valid_timezone(v) else None
 
 
 class SyncCadenceResponse(BaseModel):
@@ -24,6 +33,7 @@ class SyncCadenceResponse(BaseModel):
     max_manual_syncs_per_cycle: int = 2
     last_weekly_sync_at: datetime | None = None
     last_monthly_sync_at: datetime | None = None
+    timezone: str = "UTC"
 
 
 class SyncCadenceUpdateRequest(BaseModel):
@@ -38,6 +48,16 @@ class SyncCadenceUpdateRequest(BaseModel):
     monthly_enabled: bool | None = Field(
         None, description="Enable automated month-end appraisal dossier"
     )
+    timezone: str | None = Field(
+        None, description="IANA time zone for scheduled syncs, e.g. Asia/Kolkata"
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str | None) -> str | None:
+        if v is not None and not is_valid_timezone(v):
+            raise ValueError(f"Unknown time zone '{v}'")
+        return v
 
 
 class IntegrationStatusResponse(BaseModel):
@@ -84,10 +104,8 @@ class SyncDocsRequest(BaseModel):
     include_contributions: bool = Field(
         default=True, description="Whether to include task contribution logs"
     )
-    force: bool = Field(
-        default=False,
-        description="Bypass manual rate limiter (used by background automated cron jobs)",
-    )
+    # No `force` field on purpose: only server-side jobs may bypass the manual sync limit.
+    # A `force` sent by old clients is ignored (unknown fields are dropped).
 
 
 class SyncDocsResponse(BaseModel):

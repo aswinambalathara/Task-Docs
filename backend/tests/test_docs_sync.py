@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.security import encrypt_token
-from app.models.integration import GoogleTokens, Integration
+from app.models.integration import GoogleTokens, Integration, SyncCadence
 from app.models.task import Task
 from app.services.ai_service import AIService
 from app.services.google_docs import GoogleDocsService
@@ -33,6 +33,29 @@ async def test_realtime_sync_coalesces_rapid_changes():
 
     # First run + exactly one follow-up for the four changes made while it was running
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_bypass_manual_sync_limit(client):
+    user_id = "mock_user_limit_test"
+    await Integration(
+        user_id=user_id,
+        target_doc_id="doc_limit",
+        google_tokens=GoogleTokens(
+            access_token="x", refresh_token=encrypt_token("r"), expiry_date=0
+        ),
+        cadence=SyncCadence(manual_syncs_this_week=2, manual_syncs_this_month=2),
+    ).insert()
+
+    with patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())):
+        resp = await client.post(
+            "/api/v1/integrations/google/sync",
+            headers={"Authorization": f"Bearer {user_id}"},
+            json={"cadence_type": "all", "force": True},
+        )
+
+    assert resp.status_code == 400
+    assert "limit reached" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

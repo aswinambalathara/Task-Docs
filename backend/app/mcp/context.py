@@ -6,8 +6,6 @@ across asynchronous FastMCP tool executions and streaming SSE connections.
 
 import contextvars
 
-from app.core.config import settings
-
 # Context variable holding the authenticated user ID for the current MCP session/request
 current_mcp_user_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "current_mcp_user_var", default=None
@@ -17,7 +15,7 @@ current_mcp_user_var: contextvars.ContextVar[str | None] = contextvars.ContextVa
 def get_current_mcp_user_id() -> str:
     """
     Resolves the authenticated user ID for the active MCP invocation.
-    Prioritizes contextvar, falls back to dev mock user if configured, or raises ValueError.
+    Prioritizes contextvar, then the MCP SDK auth context, or raises ValueError.
     """
     user_id = current_mcp_user_var.get()
     if user_id:
@@ -36,8 +34,5 @@ def get_current_mcp_user_id() -> str:
                 return token_sub
     except Exception:
         pass
-
-    if settings.DEV_MOCK_AUTH:
-        return "user_mock_dev_alex"
 
     raise ValueError("Unauthorized: No authenticated user session found in MCP request context.")

@@ -4,6 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import settings
 from app.core.logger import logger
 from app.models.integration import Integration
+from app.models.mcp import MCPAccessToken, MCPAuthCode
 from app.models.task import Task
 
 motor_client: AsyncIOMotorClient | None = None
@@ -27,7 +28,9 @@ async def init_db(client: AsyncIOMotorClient | None = None) -> AsyncIOMotorClien
 
     db = motor_client[settings.DATABASE_NAME]
 
-    await init_beanie(database=db, document_models=[Task, Integration])
+    await init_beanie(
+        database=db, document_models=[Task, Integration, MCPAuthCode, MCPAccessToken]
+    )
     logger.info(f"Connected to MongoDB ({settings.DATABASE_NAME}) & initialized Beanie ODM.")
     return motor_client
 

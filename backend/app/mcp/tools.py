@@ -218,10 +218,14 @@ async def get_tasks(
         return f"Error fetching tasks: {str(exc)}"
 
 
-async def sync_docs(ctx: Context | None = None) -> str:
+async def sync_docs(include_summaries: bool = False, ctx: Context | None = None) -> str:
     """
-    Batches completed tasks and achievements from the impact ledger and triggers synthesis
-    into the user's connected Google Doc via GoogleDocsService.
+    Syncs the user's impact ledger (daily contribution tables) into their connected Google Doc.
+
+    Args:
+        include_summaries: Also regenerate the AI weekly summary and monthly dossier.
+            Only set this when the user explicitly asks for summaries: it uses one of their
+            limited manual summary syncs (2 per week / month). Default False syncs tables only.
     """
     try:
         user_id = get_current_mcp_user_id()
@@ -231,7 +235,7 @@ async def sync_docs(ctx: Context | None = None) -> str:
     try:
         result = await GoogleDocsService.sync_sprint_to_doc(
             user_id=user_id,
-            cadence_type="all",
+            cadence_type="all" if include_summaries else "daily_table",
             force=False,
         )
         return (
