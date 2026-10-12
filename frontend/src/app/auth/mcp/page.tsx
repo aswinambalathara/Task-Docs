@@ -18,6 +18,7 @@ import {
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { MCP_SSE_URL } from "@/lib/mcp"
 
 function MCPAuthContent() {
   const router = useRouter()
@@ -159,7 +160,7 @@ function MCPAuthContent() {
     {
       mcpServers: {
         tethr: {
-          url: "http://localhost:8000/sse",
+          url: MCP_SSE_URL,
           headers: {
             Authorization: `Bearer ${tokenToDisplay}`,
           },
@@ -174,7 +175,7 @@ function MCPAuthContent() {
     {
       mcpServers: {
         tethr: {
-          url: "http://localhost:8000/sse",
+          url: MCP_SSE_URL,
           headers: {
             Authorization: `Bearer ${tokenToDisplay}`,
           },
@@ -189,7 +190,7 @@ function MCPAuthContent() {
     {
       mcpServers: {
         tethr: {
-          serverUrl: "http://localhost:8000/sse",
+          serverUrl: MCP_SSE_URL,
           headers: {
             Authorization: `Bearer ${tokenToDisplay}`,
           },
@@ -204,7 +205,7 @@ function MCPAuthContent() {
     {
       mcpServers: {
         tethr: {
-          url: "http://localhost:8000/sse",
+          url: MCP_SSE_URL,
           headers: {
             Authorization: `Bearer ${tokenToDisplay}`,
           },

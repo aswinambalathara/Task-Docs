@@ -37,16 +37,12 @@ export function TaskTableView({ tasks }: { tasks: Task[] }) {
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
 
   // Pagination state
-  const [currentPage, setCurrentPage] = React.useState(1)
+  const [requestedPage, setCurrentPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(10)
 
-  // Reset to page 1 if total tasks change drastically
-  React.useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(tasks.length / pageSize))
-    if (currentPage > maxPage) {
-      setCurrentPage(1)
-    }
-  }, [tasks.length, pageSize, currentPage])
+  // Fall back to page 1 when the task list shrinks below the requested page
+  const maxPage = Math.max(1, Math.ceil(tasks.length / pageSize))
+  const currentPage = requestedPage > maxPage ? 1 : requestedPage
 
   const toggleRow = (id: string) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }))

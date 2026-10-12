@@ -30,6 +30,7 @@ import { useTheme } from "next-themes"
 import { useIntegrationStore, DailyTableCadence, WeeklyDay } from "@/store/useIntegrationStore"
 import { getAuthHeader } from "@/store/useTaskStore"
 import { cn } from "@/lib/utils"
+import { MCP_SSE_URL } from "@/lib/mcp"
 
 export default function SettingsPage() {
   const { isLoaded, isSignedIn } = useUser()
@@ -58,7 +59,7 @@ export default function SettingsPage() {
   )
 
   const [docIdInput, setDocIdInput] = React.useState<string | null>(null)
-  const activeDocId = docIdInput !== null ? docIdInput : (targetDocId || "")
+  const activeDocId = docIdInput !== null ? docIdInput : targetDocId || ""
   const [isSavingDoc, setIsSavingDoc] = React.useState(false)
   const [docSavedMessage, setDocSavedMessage] = React.useState(false)
   const [isTesting, setIsTesting] = React.useState(false)
@@ -171,7 +172,9 @@ export default function SettingsPage() {
     }
   }
 
-  const [activeMcpClient, setActiveMcpClient] = React.useState<"cursor" | "claude" | "windsurf" | "antigravity">("cursor")
+  const [activeMcpClient, setActiveMcpClient] = React.useState<
+    "cursor" | "claude" | "windsurf" | "antigravity"
+  >("cursor")
 
   const getMcpConfigFilePath = (client: "cursor" | "claude" | "windsurf" | "antigravity") => {
     switch (client) {
@@ -192,7 +195,7 @@ export default function SettingsPage() {
         return `{
   "mcpServers": {
     "tethr": {
-      "url": "http://localhost:8000/sse"
+      "url": "${MCP_SSE_URL}"
     }
   }
 }`
@@ -200,7 +203,7 @@ export default function SettingsPage() {
         return `{
   "mcpServers": {
     "tethr": {
-      "url": "http://localhost:8000/sse"
+      "url": "${MCP_SSE_URL}"
     }
   }
 }`
@@ -208,7 +211,7 @@ export default function SettingsPage() {
         return `{
   "mcpServers": {
     "tethr": {
-      "serverUrl": "http://localhost:8000/sse"
+      "serverUrl": "${MCP_SSE_URL}"
     }
   }
 }`
@@ -216,7 +219,7 @@ export default function SettingsPage() {
         return `{
   "mcpServers": {
     "tethr": {
-      "url": "http://localhost:8000/sse"
+      "url": "${MCP_SSE_URL}"
     }
   }
 }`
@@ -234,12 +237,12 @@ export default function SettingsPage() {
   if (!isSignedIn) {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
-        <Card className="w-full max-w-md p-6 text-center space-y-4">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-foreground">
+        <Card className="w-full max-w-md space-y-4 p-6 text-center">
+          <div className="bg-muted text-foreground mx-auto flex h-12 w-12 items-center justify-center rounded-lg">
             <Lock className="h-6 w-6" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-xl font-bold tracking-tight text-foreground">Sign In Required</h2>
+            <h2 className="text-foreground text-xl font-bold tracking-tight">Sign In Required</h2>
             <p className="text-muted-foreground text-xs">
               Please authenticate to configure Google Docs integration & MCP credentials.
             </p>
@@ -255,12 +258,13 @@ export default function SettingsPage() {
   return (
     <div className="container mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       {/* Header */}
-      <div className="space-y-1 border-b border-border pb-4">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl text-foreground">
+      <div className="border-border space-y-1 border-b pb-4">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
           Settings &amp; Integrations
         </h1>
         <p className="text-muted-foreground text-sm">
-          Manage Google Docs synchronization, cadences, theme appearance, and MCP protocol connections.
+          Manage Google Docs synchronization, cadences, theme appearance, and MCP protocol
+          connections.
         </p>
       </div>
 
@@ -268,13 +272,15 @@ export default function SettingsPage() {
         {/* Left 2 Columns */}
         <div className="space-y-6 lg:col-span-2">
           {/* 1. Theme Configuration */}
-          <Card className="p-5 space-y-4">
+          <Card className="space-y-4 p-5">
             <div className="space-y-0.5">
-              <h2 className="text-base font-semibold text-foreground">Theme Appearance</h2>
-              <p className="text-muted-foreground text-xs">Select your preferred color mode for Tethr.</p>
+              <h2 className="text-foreground text-base font-semibold">Theme Appearance</h2>
+              <p className="text-muted-foreground text-xs">
+                Select your preferred color mode for Tethr.
+              </p>
             </div>
 
-            <div className="bg-muted rounded-md p-1 grid grid-cols-3 gap-1">
+            <div className="bg-muted grid grid-cols-3 gap-1 rounded-md p-1">
               {[
                 { id: "light", label: "Light", icon: Sun },
                 { id: "dark", label: "Dark", icon: Moon },
@@ -290,7 +296,7 @@ export default function SettingsPage() {
                     className={cn(
                       "flex items-center justify-center gap-2 rounded-md py-1.5 text-xs font-medium transition-all select-none",
                       isSelected
-                        ? "bg-card shadow-xs text-foreground font-semibold"
+                        ? "bg-card text-foreground font-semibold shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -306,9 +312,8 @@ export default function SettingsPage() {
           {oauthNotice && (
             <div
               className={cn(
-                "rounded-lg border p-4 text-xs font-medium flex items-center gap-3 transition-all",
-                oauthNotice.type === "success" &&
-                  "bg-success/10 border-success/30 text-success",
+                "flex items-center gap-3 rounded-lg border p-4 text-xs font-medium transition-all",
+                oauthNotice.type === "success" && "bg-success/10 border-success/30 text-success",
                 oauthNotice.type === "error" &&
                   "bg-destructive/10 border-destructive/30 text-destructive",
                 oauthNotice.type === "loading" &&
@@ -316,13 +321,13 @@ export default function SettingsPage() {
               )}
             >
               {oauthNotice.type === "loading" && (
-                <Loader2 className="h-4 w-4 animate-spin shrink-0 text-primary" />
+                <Loader2 className="text-primary h-4 w-4 shrink-0 animate-spin" />
               )}
               {oauthNotice.type === "success" && (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+                <CheckCircle2 className="text-success h-4 w-4 shrink-0" />
               )}
               {oauthNotice.type === "error" && (
-                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <AlertCircle className="text-destructive h-4 w-4 shrink-0" />
               )}
               <div className="flex-1">{oauthNotice.message}</div>
               {oauthNotice.type !== "loading" && (
@@ -338,14 +343,16 @@ export default function SettingsPage() {
           )}
 
           {/* 2. Google Docs Integration Card */}
-          <Card className="p-5 space-y-4">
+          <Card className="space-y-4 p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                <div className="bg-muted text-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
                   <FileText className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-foreground">Google Docs Synchronization</h2>
+                  <h2 className="text-foreground text-base font-semibold">
+                    Google Docs Synchronization
+                  </h2>
                   <p className="text-muted-foreground text-xs">
                     Automated updates streamed into your impact ledger document
                   </p>
@@ -354,14 +361,14 @@ export default function SettingsPage() {
 
               {isConnected ? (
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  <span className="bg-success/10 text-success inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium">
+                    <span className="bg-success h-1.5 w-1.5 rounded-full" />
                     Connected
                   </span>
                   <button
                     type="button"
                     onClick={() => disconnect()}
-                    className="text-muted-foreground hover:text-destructive p-1 rounded-md transition-colors"
+                    className="text-muted-foreground hover:text-destructive rounded-md p-1 transition-colors"
                     title="Disconnect Google Docs"
                     aria-label="Disconnect Google Docs"
                   >
@@ -370,8 +377,8 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                  <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+                    <span className="bg-muted-foreground h-1.5 w-1.5 rounded-full" />
                     Not connected
                   </span>
                   <Button
@@ -397,12 +404,14 @@ export default function SettingsPage() {
             {isConnected ? (
               <div className="space-y-3 pt-2">
                 {targetDocId ? (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3.5 space-y-2">
+                  <div className="border-border bg-muted/30 space-y-2 rounded-lg border p-3.5">
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <span className="text-xs text-muted-foreground">Active Impact Ledger Document</span>
-                        <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                          <FileText className="h-4 w-4 text-primary" />
+                        <span className="text-muted-foreground text-xs">
+                          Active Impact Ledger Document
+                        </span>
+                        <h3 className="text-foreground flex items-center gap-1.5 text-sm font-semibold">
+                          <FileText className="text-primary h-4 w-4" />
                           {targetDocTitle || "Tethr — Developer Contribution Ledger"}
                         </h3>
                       </div>
@@ -413,7 +422,10 @@ export default function SettingsPage() {
                           const cleanId = activeDocId.includes("/")
                             ? activeDocId.split("/d/")[1]?.split("/")[0]
                             : activeDocId
-                          window.open(`https://docs.google.com/document/d/${cleanId}/edit`, "_blank")
+                          window.open(
+                            `https://docs.google.com/document/d/${cleanId}/edit`,
+                            "_blank"
+                          )
                         }}
                         className="gap-1.5"
                       >
@@ -421,19 +433,20 @@ export default function SettingsPage() {
                         <span>Open Document</span>
                       </Button>
                     </div>
-                    <p className="font-mono text-xs text-muted-foreground truncate">
+                    <p className="text-muted-foreground truncate font-mono text-xs">
                       ID: {targetDocId}
                     </p>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-primary/20 bg-primary-soft p-4 space-y-3">
+                  <div className="border-primary/20 bg-primary-soft space-y-3 rounded-lg border p-4">
                     <div className="space-y-1">
-                      <h3 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      <h3 className="text-foreground flex items-center gap-1.5 text-xs font-semibold">
+                        <Sparkles className="text-primary h-3.5 w-3.5" />
                         No Target Document Configured
                       </h3>
-                      <p className="text-xs text-muted-foreground">
-                        Create a dedicated Google Doc with pre-formatted headers, or link an existing doc.
+                      <p className="text-muted-foreground text-xs">
+                        Create a dedicated Google Doc with pre-formatted headers, or link an
+                        existing doc.
                       </p>
                     </div>
                     <Button
@@ -460,15 +473,17 @@ export default function SettingsPage() {
                 {/* Target Google Document ID or Link */}
                 <div className="space-y-1.5 pt-1">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="doc-id" className="text-xs font-medium text-foreground">
-                      {targetDocId ? "Change Document ID or URL" : "Or Paste Google Document ID / URL"}
+                    <Label htmlFor="doc-id" className="text-foreground text-xs font-medium">
+                      {targetDocId
+                        ? "Change Document ID or URL"
+                        : "Or Paste Google Document ID / URL"}
                     </Label>
                     {!targetDocId && (
                       <button
                         type="button"
                         onClick={handleCreateDoc}
                         disabled={isCreatingDoc}
-                        className="text-primary text-xs font-medium hover:underline inline-flex items-center gap-1"
+                        className="text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline"
                       >
                         <FilePlus2 className="h-3 w-3" />
                         {isCreatingDoc ? "Creating..." : "Create new doc instead"}
@@ -481,7 +496,7 @@ export default function SettingsPage() {
                       value={activeDocId}
                       onChange={(e) => setDocIdInput(e.target.value)}
                       placeholder="e.g. 1BxiMvs0XRY5n5DCa_example or full docs URL"
-                      className="font-mono text-xs flex-1"
+                      className="flex-1 font-mono text-xs"
                     />
                     <Button
                       onClick={handleSaveDocId}
@@ -492,16 +507,17 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                   {docSavedMessage && (
-                    <p className="text-success text-xs font-medium flex items-center gap-1">
+                    <p className="text-success flex items-center gap-1 text-xs font-medium">
                       <Check className="h-3.5 w-3.5" /> Document ID saved!
                     </p>
                   )}
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-border p-4 text-center space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Connect your Google account to enable automated Google Docs synchronization. Your access tokens are refreshed automatically and encrypted with AES-256.
+              <div className="border-border space-y-2 rounded-lg border border-dashed p-4 text-center">
+                <p className="text-muted-foreground text-xs">
+                  Connect your Google account to enable automated Google Docs synchronization. Your
+                  access tokens are refreshed automatically and encrypted with AES-256.
                 </p>
                 <Button size="sm" onClick={handleGoogleConnect} className="gap-1.5">
                   <FileText className="h-3.5 w-3.5" />
@@ -510,7 +526,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t border-border pt-3">
+            <div className="border-border flex flex-col items-start justify-between gap-3 border-t pt-3 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -523,7 +539,7 @@ export default function SettingsPage() {
                   <span>{isTesting ? "Testing..." : "Test Docs Sync"}</span>
                 </Button>
                 {testSuccess && (
-                  <span className="flex items-center gap-1 text-xs text-success font-medium">
+                  <span className="text-success flex items-center gap-1 text-xs font-medium">
                     <CheckCircle2 className="h-4 w-4" /> Verified write
                   </span>
                 )}
@@ -535,19 +551,19 @@ export default function SettingsPage() {
           </Card>
 
           {/* 3. Automated Sync Cadence Configuration */}
-          <Card className="p-5 space-y-4">
+          <Card className="space-y-4 p-5">
             <div className="space-y-0.5">
-              <h2 className="text-base font-semibold text-foreground">Sync Cadence</h2>
+              <h2 className="text-foreground text-base font-semibold">Sync Cadence</h2>
               <p className="text-muted-foreground text-xs">
                 Configure frequency for daily table batching and weekly rollups.
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-foreground">
+              <Label className="text-foreground text-xs font-medium">
                 Daily Contribution Log Frequency
               </Label>
-              <div className="bg-muted rounded-md p-1 grid grid-cols-1 sm:grid-cols-3 gap-1">
+              <div className="bg-muted grid grid-cols-1 gap-1 rounded-md p-1 sm:grid-cols-3">
                 {[
                   { id: "realtime", title: "Realtime" },
                   { id: "end_of_day", title: "End of Day" },
@@ -558,11 +574,13 @@ export default function SettingsPage() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => updateCadence({ daily_table_cadence: item.id as DailyTableCadence })}
+                      onClick={() =>
+                        updateCadence({ daily_table_cadence: item.id as DailyTableCadence })
+                      }
                       className={cn(
-                        "rounded-md py-1.5 text-xs font-medium transition-all text-center select-none",
+                        "rounded-md py-1.5 text-center text-xs font-medium transition-all select-none",
                         isSelected
-                          ? "bg-card shadow-xs text-foreground font-semibold"
+                          ? "bg-card text-foreground font-semibold shadow-xs"
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
@@ -573,13 +591,15 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-2 border-t border-border">
+            <div className="border-border grid grid-cols-1 gap-4 border-t pt-2 sm:grid-cols-2">
               {/* Weekly Rollup Settings */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-border p-2.5 text-xs bg-muted/20">
+                <div className="border-border bg-muted/20 flex items-center justify-between rounded-lg border p-2.5 text-xs">
                   <div className="space-y-0.5">
-                    <span className="text-foreground font-medium block">Automatic weekly synthesis</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-foreground block font-medium">
+                      Automatic weekly synthesis
+                    </span>
+                    <span className="text-muted-foreground text-[11px]">
                       Generate and append weekly rollup table
                     </span>
                   </div>
@@ -587,15 +607,18 @@ export default function SettingsPage() {
                     type="checkbox"
                     checked={cadence.weekly_enabled}
                     onChange={(e) => updateCadence({ weekly_enabled: e.target.checked })}
-                    className="h-4 w-4 rounded border-input text-primary focus:ring-ring cursor-pointer"
+                    className="border-input text-primary focus:ring-ring h-4 w-4 cursor-pointer rounded"
                   />
                 </div>
 
-                <div className={cn("space-y-1.5 transition-opacity", !cadence.weekly_enabled && "opacity-50 pointer-events-none")}>
-                  <Label className="text-xs font-medium text-foreground">
-                    Weekly Summary Day
-                  </Label>
-                  <div className="bg-muted rounded-md p-1 flex gap-1">
+                <div
+                  className={cn(
+                    "space-y-1.5 transition-opacity",
+                    !cadence.weekly_enabled && "pointer-events-none opacity-50"
+                  )}
+                >
+                  <Label className="text-foreground text-xs font-medium">Weekly Summary Day</Label>
+                  <div className="bg-muted flex gap-1 rounded-md p-1">
                     {(["Friday", "Saturday", "Sunday"] as WeeklyDay[]).map((day) => {
                       const isSelected = cadence.weekly_day === day
                       return (
@@ -605,9 +628,9 @@ export default function SettingsPage() {
                           disabled={!cadence.weekly_enabled}
                           onClick={() => updateCadence({ weekly_day: day })}
                           className={cn(
-                            "flex-1 rounded-md py-1 text-xs font-medium transition-all text-center select-none",
+                            "flex-1 rounded-md py-1 text-center text-xs font-medium transition-all select-none",
                             isSelected
-                              ? "bg-card shadow-xs text-foreground font-semibold"
+                              ? "bg-card text-foreground font-semibold shadow-xs"
                               : "text-muted-foreground hover:text-foreground"
                           )}
                         >
@@ -621,10 +644,12 @@ export default function SettingsPage() {
 
               {/* Monthly Appraisal Dossier */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-border p-2.5 text-xs bg-muted/20">
+                <div className="border-border bg-muted/20 flex items-center justify-between rounded-lg border p-2.5 text-xs">
                   <div className="space-y-0.5">
-                    <span className="text-foreground font-medium block">Automatic month-end synthesis</span>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-foreground block font-medium">
+                      Automatic month-end synthesis
+                    </span>
+                    <span className="text-muted-foreground text-[11px]">
                       Full performance appraisal dossier
                     </span>
                   </div>
@@ -632,12 +657,13 @@ export default function SettingsPage() {
                     type="checkbox"
                     checked={cadence.monthly_enabled}
                     onChange={(e) => updateCadence({ monthly_enabled: e.target.checked })}
-                    className="h-4 w-4 rounded border-input text-primary focus:ring-ring cursor-pointer"
+                    className="border-input text-primary focus:ring-ring h-4 w-4 cursor-pointer rounded"
                   />
                 </div>
 
-                <p className="text-[11px] text-muted-foreground px-1">
-                  Runs automatically on the final day of each calendar month using your configured Gemini API key.
+                <p className="text-muted-foreground px-1 text-[11px]">
+                  Runs automatically on the final day of each calendar month using your configured
+                  Gemini API key.
                 </p>
               </div>
             </div>
@@ -646,24 +672,25 @@ export default function SettingsPage() {
 
         {/* Right Column: FastMCP Server Connection */}
         <div className="space-y-6">
-          <Card className="p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          <Card className="space-y-4 p-5">
+            <div className="border-border flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-foreground" />
-                <h2 className="text-sm font-semibold text-foreground">FastMCP Server</h2>
+                <Terminal className="text-foreground h-4 w-4" />
+                <h2 className="text-foreground text-sm font-semibold">FastMCP Server</h2>
               </div>
-              <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              <span className="bg-success/10 text-success rounded-full px-2 py-0.5 text-xs font-medium">
                 Port 8000 (SSE)
               </span>
             </div>
 
             <p className="text-muted-foreground text-xs leading-relaxed">
-              Connect AI IDEs directly to Tethr to log tasks, update achievements, and sync documents from Cursor, Claude Desktop, Antigravity, or Windsurf.
+              Connect AI IDEs directly to Tethr to log tasks, update achievements, and sync
+              documents from Cursor, Claude Desktop, Antigravity, or Windsurf.
             </p>
 
             {/* Quick 1-Click Auth Page link */}
-            <div className="rounded-lg border border-border p-3 space-y-2 bg-muted/30">
-              <span className="text-xs font-medium text-foreground block">IDE One-Click Auth</span>
+            <div className="border-border bg-muted/30 space-y-2 rounded-lg border p-3">
+              <span className="text-foreground block text-xs font-medium">IDE One-Click Auth</span>
               <p className="text-muted-foreground text-xs leading-snug">
                 Authorize IDE tool calls via the standard MCP authorization screen.
               </p>
@@ -671,7 +698,7 @@ export default function SettingsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => window.open("/auth/mcp", "_blank")}
-                className="w-full text-xs gap-1.5"
+                className="w-full gap-1.5 text-xs"
               >
                 <span>Open /auth/mcp</span>
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -680,22 +707,24 @@ export default function SettingsPage() {
 
             {/* SSE URL Copy */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-foreground">
-                SSE Endpoint URL
-              </Label>
+              <Label className="text-foreground text-xs font-medium">SSE Endpoint URL</Label>
               <div className="flex gap-1.5">
                 <Input
-                  value="http://localhost:8000/sse"
+                  value={MCP_SSE_URL}
                   readOnly
-                  className="text-xs font-mono select-all"
+                  className="font-mono text-xs select-all"
                 />
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => copyToClipboard("http://localhost:8000/sse", "sse")}
-                  className="px-2.5 shrink-0"
+                  onClick={() => copyToClipboard(MCP_SSE_URL, "sse")}
+                  className="shrink-0 px-2.5"
                 >
-                  {copiedSseUrl ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedSseUrl ? (
+                    <Check className="text-success h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </div>
             </div>
@@ -703,28 +732,32 @@ export default function SettingsPage() {
             {/* Multi-IDE Configuration Snippet Selector */}
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium text-foreground">
+                <Label className="text-foreground text-xs font-medium">
                   IDE MCP Config Snippet
                 </Label>
                 <button
                   type="button"
                   onClick={() => copyToClipboard(getCurrentMcpSnippet(), "config")}
-                  className="text-primary hover:underline text-xs inline-flex items-center gap-1 font-medium cursor-pointer"
+                  className="text-primary inline-flex cursor-pointer items-center gap-1 text-xs font-medium hover:underline"
                 >
-                  {copiedConfig ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                  {copiedConfig ? (
+                    <Check className="text-success h-3 w-3" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
                   <span>{copiedConfig ? "Copied" : "Copy"}</span>
                 </button>
               </div>
 
               {/* IDE Tabs */}
-              <div className="bg-muted rounded-md p-1 grid grid-cols-4 gap-1 text-[11px] font-medium">
+              <div className="bg-muted grid grid-cols-4 gap-1 rounded-md p-1 text-[11px] font-medium">
                 {(["cursor", "claude", "windsurf", "antigravity"] as const).map((ide) => (
                   <button
                     key={ide}
                     type="button"
                     onClick={() => setActiveMcpClient(ide)}
                     className={cn(
-                      "py-1 rounded text-center transition-all capitalize select-none",
+                      "rounded py-1 text-center capitalize transition-all select-none",
                       activeMcpClient === ide
                         ? "bg-card text-foreground font-semibold shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
@@ -735,11 +768,11 @@ export default function SettingsPage() {
                 ))}
               </div>
 
-              <div className="text-[10px] text-muted-foreground font-mono truncate px-1">
+              <div className="text-muted-foreground truncate px-1 font-mono text-[10px]">
                 Config file: {getMcpConfigFilePath(activeMcpClient)}
               </div>
 
-              <pre className="rounded-lg border border-border bg-muted/60 p-2.5 font-mono text-[11px] text-foreground overflow-x-auto leading-relaxed">
+              <pre className="border-border bg-muted/60 text-foreground overflow-x-auto rounded-lg border p-2.5 font-mono text-[11px] leading-relaxed">
                 {getCurrentMcpSnippet()}
               </pre>
             </div>
