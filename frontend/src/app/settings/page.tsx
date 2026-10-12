@@ -74,11 +74,13 @@ export default function SettingsPage() {
     if (!isSignedIn) return
     fetchStatus()
 
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search)
-      const code = params.get("code")
-      const error = params.get("error")
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get("code")
+    const error = params.get("error")
+    if (!code && !error) return
 
+    // Defer state updates out of the effect body to avoid cascading renders.
+    queueMicrotask(() => {
       if (error) {
         setOauthNotice({
           type: "error",
@@ -106,7 +108,7 @@ export default function SettingsPage() {
           window.history.replaceState({}, document.title, window.location.pathname)
         })
       }
-    }
+    })
   }, [fetchStatus, handleOAuthCallback, isSignedIn])
 
   const handleSaveDocId = async () => {
@@ -148,7 +150,9 @@ export default function SettingsPage() {
   const handleTestSync = async () => {
     setIsTesting(true)
     setTestSuccess(false)
-    const res = await syncDocs({ force: true })
+    // Table-only sync: verifies the Google connection without generating AI summaries
+    // or using up one of the user's limited manual summary syncs
+    const res = await syncDocs({ cadenceType: "daily_table" })
     setIsTesting(false)
     if (res.success) {
       setTestSuccess(true)

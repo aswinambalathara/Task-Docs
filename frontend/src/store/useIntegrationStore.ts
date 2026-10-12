@@ -14,6 +14,7 @@ export interface SyncCadence {
   max_manual_syncs_per_cycle: number
   last_weekly_sync_at?: string
   last_monthly_sync_at?: string
+  timezone?: string
 }
 
 export interface IntegrationState {
@@ -46,6 +47,7 @@ export interface IntegrationState {
     weekly_enabled?: boolean
     weekly_day?: WeeklyDay
     monthly_enabled?: boolean
+    timezone?: string
   }) => Promise<boolean>
   disconnect: () => Promise<boolean>
   syncDailyTable: (taskIds?: string[]) => Promise<{ success: boolean; result?: unknown; error?: string }>
@@ -54,7 +56,6 @@ export interface IntegrationState {
     cadenceType?: "all" | "weekly" | "monthly" | "daily_table" | "weekly_summary" | "monthly_dossier"
     executiveSummary?: string
     includeContributions?: boolean
-    force?: boolean
   }) => Promise<{ success: boolean; result?: unknown; error?: string }>
   fetchAISummary: (options?: {
     taskIds?: string[]
@@ -69,6 +70,15 @@ export interface IntegrationState {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
 let autoSyncTimer: ReturnType<typeof setInterval> | null = null
+
+// IANA zone of this browser (e.g. "Asia/Kolkata"); the backend schedules syncs in it
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
+  } catch {
+    return undefined
+  }
+}
 
 const defaultCadence: SyncCadence = {
   daily_table_cadence: "realtime",
@@ -124,6 +134,13 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
         isLoading: false,
         error: null,
       })
+
+      // Keep the stored zone in step with the browser (covers users connected before
+      // time zones existed, and travel) so scheduled syncs run at local times
+      const timezone = browserTimeZone()
+      if (data.connected && timezone && data.cadence?.timezone !== timezone) {
+        void get().updateCadence({ timezone })
+      }
     } catch {
       set({ isLoading: false })
     }
@@ -138,7 +155,7 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
           ...getAuthHeader(),
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, timezone: browserTimeZone() }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -279,7 +296,6 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       taskIds,
       cadenceType: "daily_table",
       includeContributions: true,
-      force: true,
     })
   },
 
@@ -297,7 +313,6 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
           cadence_type: options.cadenceType || "all",
           executive_summary: options.executiveSummary,
           include_contributions: options.includeContributions ?? true,
-          force: options.force ?? false,
         }),
       })
 
@@ -361,8 +376,11 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   },
 
   notifyChange: (options) => {
-    const { isConnected, targetDocId, isSyncing } = get()
+    const { isConnected, targetDocId, isSyncing, cadence } = get()
     if (!isConnected || !targetDocId) return
+    // Only the "realtime" cadence syncs on every change; end_of_day / weekly are
+    // handled by the backend scheduler (the manual "Sync" button still works)
+    if (cadence.daily_table_cadence !== "realtime") return
 
     set({
       hasPendingSync: true,

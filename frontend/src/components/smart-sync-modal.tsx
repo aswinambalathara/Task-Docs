@@ -105,7 +105,6 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
       cadenceType: cadenceTypeMap[scope] || "daily_table",
       executiveSummary: scope !== "daily_table" ? (aiPreview || undefined) : undefined,
       includeContributions,
-      force: scope === "daily_table",
     })
 
     if (res.success && res.result) {
