@@ -116,8 +116,13 @@ class Settings(BaseSettings):
             raise ValueError("DEV_MOCK_AUTH must be False when ENVIRONMENT=production.")
         return self
 
+    # .env holds production values; .env.local (local development only) overrides them.
+    # Real environment variables, as set by Docker from api.env on the server, override both.
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
+        env_file=(".env", ".env.local"),
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
     )
 
 

@@ -3,7 +3,7 @@
 *.pyc
 .pytest_cache/
 .ruff_cache/
-.env
+.env*
 logs/
 tests/
 scripts/

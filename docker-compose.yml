@@ -1,5 +1,5 @@
 # Tethr: web app on :3000, API + MCP server on :8000 (MCP is mounted on the API at /sse and /mcp).
-# MongoDB is Atlas, set by MONGODB_URL in backend/.env.
+# MongoDB is Atlas, set by MONGODB_URL in backend/.env.local.
 #
 #   docker compose --env-file frontend/.env.local up --build
 #
@@ -8,7 +8,7 @@
 services:
   api:
     build: ./backend
-    env_file: backend/.env
+    env_file: backend/.env.local
     ports:
       - "8000:8000"
     volumes:
