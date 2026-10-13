@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from mcp.server.fastmcp import FastMCP
 
 from app.core.config import settings
-
 from app.mcp.context import current_mcp_user_var, get_current_mcp_user_id
 from app.mcp.tools import add_task, get_tasks, register_tools, sync_docs, update_task
 

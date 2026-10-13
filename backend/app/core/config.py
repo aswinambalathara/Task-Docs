@@ -42,6 +42,8 @@ class Settings(BaseSettings):
 
     # Google Gemini AI Summarization (Gemini 2.0 Flash)
     GEMINI_API_KEY: str = ""
+    # Max AI previews per user per UTC day billed to GEMINI_API_KEY (BYOK requests are not counted)
+    AI_PREVIEW_DAILY_LIMIT: int = 5
 
     # Logging Configuration
     LOG_DIR: str = "logs"

@@ -7,11 +7,17 @@ from pydantic import BaseModel, Field, field_validator
 class SummarizeRequest(BaseModel):
     task_ids: list[str] | None = Field(
         None,
-        description="List of task IDs to synthesize. Defaults to all recently completed tasks.",
+        max_length=500,
+        description=(
+            "Task IDs to synthesize. Defaults to the tasks of the current week (weekly mode) "
+            "or month (monthly mode), the same tasks a summary sync writes about."
+        ),
     )
     api_key: str | None = Field(None, description="Optional user-supplied Gemini API key (BYOK)")
     custom_context: str | None = Field(
-        None, description="Additional context or sprint theme to guide the summary"
+        None,
+        max_length=1000,
+        description="Additional context or sprint theme to guide the summary",
     )
     mode: Literal["weekly", "monthly", "weekly_rollup", "monthly_appraisal"] = Field(
         "weekly", description="Cadence mode: weekly rollup or monthly appraisal dossier"
@@ -36,3 +42,15 @@ class SummarizeResponse(BaseModel):
     )
     task_count: int
     generated_at: datetime
+    fingerprint: str = Field(
+        ..., description="Identifies the summarized tasks; pass it to the sync with this text"
+    )
+    remaining_previews: int | None = Field(
+        None, description="AI previews left today; null when the request used the caller's own key"
+    )
+
+
+class PreviewQuotaResponse(BaseModel):
+    limit: int
+    remaining: int
+    resets_at: datetime

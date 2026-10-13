@@ -4,6 +4,8 @@ Contains MCP tool implementations for engineering task management,
 contribution logging, impact querying, and Google Docs synchronization.
 """
 
+import calendar
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from loguru import logger
@@ -11,10 +13,109 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from app.core.constants import DEVELOPER_TASK_TYPES, DeveloperTaskType
 from app.mcp.context import get_current_mcp_user_id
+from app.models.integration import Integration
 from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
 from app.services.google_docs import GoogleDocsService
 from app.services.task_service import TaskService
+
+# sync_docs `summaries` option -> sync cadence_type
+SUMMARY_SCOPES: dict[str, Literal["daily_table", "weekly_summary", "monthly_dossier", "all"]] = {
+    "none": "daily_table",
+    "weekly": "weekly_summary",
+    "monthly": "monthly_dossier",
+    "both": "all",
+}
+
+
+def _ago(dt: datetime | None) -> str:
+    if dt is None:
+        return "recently"
+    aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    minutes = int((datetime.now(UTC) - aware).total_seconds() // 60)
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h ago"
+    return f"{minutes // (24 * 60)} days ago"
+
+
+async def _sync_health_note(user_id: str) -> str:
+    """A warning when an unattended (background or scheduled) sync failed, else ""."""
+    integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+    if not integration or not integration.cadence.last_sync_error:
+        return ""
+    cadence = integration.cadence
+    action = (
+        "It retries automatically; call `sync_docs` to retry now."
+        if cadence.last_sync_error_retryable
+        else "Reconnect Google Docs (or select the target doc) in Tethr Settings, "
+        "then call `sync_docs`."
+    )
+    return (
+        f"⚠️ **Google Docs is out of date:** the last background sync failed "
+        f"{_ago(cadence.last_sync_error_at)} ({cadence.last_sync_error}). "
+        f"Your tasks are saved. {action}"
+    )
+
+
+async def _with_health_note(user_id: str, text: str) -> str:
+    note = await _sync_health_note(user_id)
+    return f"{text}\n\n{note}" if note else text
+
+
+async def _summary_status_note(user_id: str) -> str:
+    """Whether this week's summary and this month's dossier exist and are current."""
+    status = await GoogleDocsService.get_summary_status(user_id)
+    integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+    if status is None or integration is None:
+        return ""
+    cadence = integration.cadence
+
+    def line(kind: str) -> str:
+        state = status[kind]
+        if kind == "weekly":
+            label = (
+                f"Week {status['week_num']} summary "
+                f"({status['week_start']:%d %b}–{status['week_end']:%d %b})"
+            )
+            auto = (
+                f"written automatically on {cadence.weekly_day} at 18:00"
+                if cadence.weekly_enabled
+                else None
+            )
+        else:
+            month = int(state["key"].split(":")[2])
+            label = f"{calendar.month_name[month]} dossier"
+            auto = (
+                "written automatically on the last day of the month at 18:00"
+                if cadence.monthly_enabled
+                else None
+            )
+        call = f'`sync_docs(summaries="{kind}")`'
+
+        if not state["generated"]:
+            if state["current_task_count"] == 0:
+                return f"- {label}: no tasks logged yet"
+            when = f"{auto}, or call {call}" if auto else f"call {call} to write it"
+            return f"- {label}: not written yet ({state['current_task_count']} task(s)); {when}"
+        if state["stale"]:
+            if state["summarized_task_count"] is not None:
+                detail = (
+                    f"written about {state['summarized_task_count']} task(s), "
+                    f"{state['current_task_count']} logged now"
+                )
+            else:
+                detail = f"tasks changed since it was written ({state['current_task_count']} now)"
+            return (
+                f"- {label}: ⚠️ out of date, {detail}. Rewritten automatically tonight, "
+                f"or call {call} to replace it now."
+            )
+        return f"- {label}: ✅ up to date ({state['current_task_count']} task(s))"
+
+    return "**Summaries:**\n" + "\n".join([line("weekly"), line("monthly")])
 
 
 def _format_task_summary(task: Task) -> str:
@@ -104,7 +205,9 @@ async def add_task(
     try:
         task = await TaskService.create_task(user_id=user_id, payload=payload)
         logger.info(f"MCP tool add_task created task {task.id} for user {user_id}")
-        return f"✅ **Task Created Successfully!**\n\n{_format_task_summary(task)}"
+        return await _with_health_note(
+            user_id, f"✅ **Task Created Successfully!**\n\n{_format_task_summary(task)}"
+        )
     except Exception as exc:
         logger.error(f"MCP add_task error: {exc}")
         return f"Error creating task: {str(exc)}"
@@ -159,7 +262,10 @@ async def update_task(
             return f"❌ **Error:** Task `{task_id}` not found or you do not have permission to modify it."
 
         logger.info(f"MCP tool update_task updated task {task_id} for user {user_id}")
-        return f"✅ **Task `{task_id}` Updated Successfully!**\n\n{_format_task_summary(task)}"
+        return await _with_health_note(
+            user_id,
+            f"✅ **Task `{task_id}` Updated Successfully!**\n\n{_format_task_summary(task)}",
+        )
     except Exception as exc:
         logger.error(f"MCP update_task error: {exc}")
         return f"Error updating task: {str(exc)}"
@@ -212,46 +318,66 @@ async def get_tasks(
 
         header = f"### 📋 Tethr Tasks ({len(tasks)} of {total} total)\n"
         items_text = "\n\n---\n\n".join([_format_task_summary(t) for t in tasks])
-        return f"{header}\n{items_text}"
+        note = await _sync_health_note(user_id)
+        return f"{note}\n\n{header}\n{items_text}" if note else f"{header}\n{items_text}"
     except Exception as exc:
         logger.error(f"MCP get_tasks error: {exc}")
         return f"Error fetching tasks: {str(exc)}"
 
 
-async def sync_docs(include_summaries: bool = False, ctx: Context | None = None) -> str:
+async def sync_docs(
+    summaries: Literal["none", "weekly", "monthly", "both"] = "none",
+    ctx: Context | None = None,
+) -> str:
     """
-    Syncs the user's impact ledger (daily contribution tables) into their connected Google Doc.
+    Syncs the user's impact ledger into their connected Google Doc, then reports whether
+    this week's summary and this month's dossier are up to date.
 
     Args:
-        include_summaries: Also regenerate the AI weekly summary and monthly dossier.
-            Only set this when the user explicitly asks for summaries: it uses one of their
-            limited manual summary syncs (2 per week / month). Default False syncs tables only.
+        summaries: Which AI summaries to (re)write besides the daily table.
+            "none" (default): daily table only, unlimited.
+            "weekly": this week's summary; uses 1 of the user's 2 weekly summary syncs.
+            "monthly": this month's appraisal dossier; uses 1 of 2 monthly syncs.
+            "both": both; uses one of each.
+            Only write summaries when the user asks for them: out-of-date summaries are
+            rewritten automatically every night, and the output says which ones are behind.
     """
     try:
         user_id = get_current_mcp_user_id()
     except ValueError as e:
         return f"Error: {e}"
 
+    cadence_type = SUMMARY_SCOPES.get(summaries)
+    if cadence_type is None:
+        return '⚠️ **Sync Notice:** `summaries` must be "none", "weekly", "monthly" or "both".'
+
     try:
         result = await GoogleDocsService.sync_sprint_to_doc(
-            user_id=user_id,
-            cadence_type="all" if include_summaries else "daily_table",
-            force=False,
+            user_id=user_id, cadence_type=cadence_type, force=False
         )
-        return (
+        text = (
             f"📄 **Google Docs Sync Successful!**\n\n"
             f"- **Document:** [{result.get('doc_id')}]({result.get('doc_url')})\n"
             f"- **Tasks Synced:** {result.get('synced_tasks_count')} tasks\n"
-            f"- **Remaining Manual Syncs This Week:** {result.get('remaining_manual_syncs_week')}\n"
-            f"- **Remaining Manual Syncs This Month:** {result.get('remaining_manual_syncs_month')}\n\n"
-            f"View your formatted impact dossier directly in Google Docs: {result.get('doc_url')}"
+            f"- **Remaining Manual Summary Syncs:** "
+            f"{result.get('remaining_manual_syncs_week')} weekly, "
+            f"{result.get('remaining_manual_syncs_month')} monthly"
         )
     except ValueError as ve:
         # User-friendly error such as rate limit reached or missing doc ID
-        return f"⚠️ **Sync Notice:** {str(ve)}"
+        text = f"⚠️ **Sync Notice:** {str(ve)}"
     except Exception as exc:
         logger.error(f"MCP sync_docs error: {exc}")
-        return f"❌ **Error syncing to Google Docs:** {str(exc)}"
+        text = f"❌ **Error syncing to Google Docs:** {str(exc)}"
+
+    try:
+        status_note = await _summary_status_note(user_id)
+    except Exception as exc:
+        logger.warning(f"MCP summary status failed for user {user_id}: {exc}")
+        status_note = ""
+    # After a failed sync, also say whether background syncs are failing
+    health_note = "" if text.startswith("📄") else await _sync_health_note(user_id)
+    return "\n\n".join(part for part in (text, status_note, health_note) if part)
 
 
 def register_tools(mcp_instance: FastMCP) -> None:

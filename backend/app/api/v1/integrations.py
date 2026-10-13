@@ -10,6 +10,7 @@ from app.schemas.sync import (
     GoogleAuthUrlResponse,
     GoogleCallbackRequest,
     IntegrationStatusResponse,
+    SummaryStatusResponse,
     SyncCadenceResponse,
     SyncCadenceUpdateRequest,
     SyncDocsRequest,
@@ -34,6 +35,10 @@ def _to_cadence_response(integration: Integration) -> tuple[SyncCadenceResponse,
         last_weekly_sync_at=cadence.last_weekly_sync_at,
         last_monthly_sync_at=cadence.last_monthly_sync_at,
         timezone=cadence.timezone,
+        table_sync_pending=cadence.table_sync_pending,
+        last_sync_error=cadence.last_sync_error,
+        last_sync_error_at=cadence.last_sync_error_at,
+        last_sync_error_retryable=cadence.last_sync_error_retryable,
     )
     rem_week = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_week)
     rem_month = max(0, cadence.max_manual_syncs_per_cycle - cadence.manual_syncs_this_month)
@@ -216,6 +221,23 @@ async def update_sync_cadence(
     )
 
 
+@router.get("/summary-status", response_model=SummaryStatusResponse)
+async def get_summary_status(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> SummaryStatusResponse:
+    """
+    Whether this week's summary and this month's dossier exist, and whether tasks were
+    added or removed since they were written (stale ones are rewritten nightly).
+    """
+    result = await GoogleDocsService.get_summary_status(current_user.id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Docs is not connected. Please connect your account first.",
+        )
+    return SummaryStatusResponse(**result)
+
+
 @router.post("/sync", response_model=SyncDocsResponse)
 async def sync_docs(
     payload: SyncDocsRequest,
@@ -231,6 +253,9 @@ async def sync_docs(
             task_ids=payload.task_ids,
             cadence_type=payload.cadence_type,
             executive_summary=payload.executive_summary,
+            monthly_dossier=payload.monthly_dossier,
+            weekly_fingerprint=payload.weekly_fingerprint,
+            monthly_fingerprint=payload.monthly_fingerprint,
             include_contributions=payload.include_contributions,
             # User requests always respect the manual sync limit
             force=False,

@@ -6,3 +6,6 @@ __pycache__/
 logs/
 *.log
 
+
+# Local one-off scripts (may touch real Google Docs)
+scratch_*.py

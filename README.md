@@ -133,7 +133,7 @@ Tethr exposes four core developer tools over Server-Sent Events (SSE) and Stdio:
 | `add_task` | `title` (str, required)<br>`project` (str = "General")<br>`area` (str, optional)<br>`type` (str = "Feature")<br>`status` (`todo` \| `in_progress` \| `done` \| `blocked` \| `cancelled`)<br>`priority` (`low` \| `medium` \| `high` \| `urgent`)<br>`outcome` (str, optional)<br>`evidence` (str, optional)<br>`requested_by` (str, optional)<br>`is_career_highlight` (bool = False) | Logs a new contribution with outcome and evidence into the ledger. |
 | `update_task` | `task_id` (str, required)<br>`status` (str, optional)<br>`outcome` (str, optional)<br>`evidence` (str, optional)<br>`contribution_note` (str, optional)<br>`is_career_highlight` (bool, optional) | Updates task status, attaches proof, or stars as a career highlight. Triggers real-time Google Docs sync when marked `done`. |
 | `get_tasks` | `status` (str, optional)<br>`project` (str, optional)<br>`highlight_only` (bool = False)<br>`limit` (int = 20) | Contextual retrieval of backlog items or career highlights for the active project. |
-| `sync_docs` | `cadence_type` (`daily_table` \| `weekly_summary` \| `monthly_dossier` \| `all`)<br>`executive_summary` (str, optional)<br>`force` (bool = False) | Synchronizes formatted tables and AI summaries to the configured Google Doc. |
+| `sync_docs` | `summaries` (`none` \| `weekly` \| `monthly` \| `both`, default `none`) | Rebuilds the daily table in the configured Google Doc; `weekly` / `monthly` / `both` also rewrite those AI summaries (each uses one manual summary sync). Always reports whether this week's summary and this month's dossier are up to date. |
 
 ---
 

@@ -8,11 +8,12 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
+from loguru import logger
 
 from app.core.config import settings
 
-# HTTP Bearer scheme
-security_scheme = HTTPBearer(auto_error=True)
+# HTTP Bearer scheme. auto_error=False so a missing token is rejected (and logged) below
+security_scheme = HTTPBearer(auto_error=False)
 
 # JWKS Client with caching
 _jwks_client: PyJWKClient | None = None
@@ -59,12 +60,19 @@ class AuthenticatedUser:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Security(security_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Security(security_scheme),
 ) -> AuthenticatedUser:
     """
     Validates Clerk RS256 JWT from the Authorization header and returns the AuthenticatedUser.
     Enforces multi-tenancy by providing the authenticated user_id (sub).
     """
+    if credentials is None:
+        logger.warning("Rejected request: no bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
 
     # Development & test bypass when live Clerk is not configured
@@ -95,6 +103,7 @@ async def get_current_user(
         return AuthenticatedUser(id=user_id, email=payload.get("email"), claims=payload)
 
     except jwt.ExpiredSignatureError as exc:
+        logger.warning("Rejected request: Clerk token expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication token has expired.",
@@ -108,6 +117,7 @@ async def get_current_user(
                 email="alex.rivera@github.dev",
                 claims={"sub": "user_mock_dev_fallback", "mock": True},
             )
+        logger.warning(f"Rejected request: invalid Clerk token ({exc})")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid authentication token: {str(exc)}",

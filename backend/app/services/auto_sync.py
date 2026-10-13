@@ -7,6 +7,9 @@ scheduled syncs are due in their own time zone, and runs them:
 - daily_table_cadence "weekly":     table sync on weekly_day at SUMMARY_AT
 - weekly_enabled:                   weekly AI summary on weekly_day at SUMMARY_AT
 - monthly_enabled:                  monthly AI dossier on the month's last day at SUMMARY_AT
+- always:                           nightly at END_OF_DAY_AT, rewrite cached summaries whose
+                                    period gained or lost tasks since they were written
+- table_sync_pending:               retry a failed realtime table sync (with the back-off below)
 
 Each job records the local period it completed (day / ISO week / month), so restarts and
 multiple workers never run a period twice, and a tick after downtime catches up on the
@@ -57,6 +60,8 @@ class DueJobs:
     weekly: str | None = None  # "2026-W41"
     monthly: str | None = None  # "2026-10"
     table: str | None = None  # "2026-10-12" or "2026-W41"
+    refresh: str | None = None  # "2026-10-12": nightly stale-summary refresh
+    retry_table: bool = False  # a realtime table sync failed and must be retried
 
     @property
     def cadence_type(self) -> str | None:
@@ -67,7 +72,7 @@ class DueJobs:
             return "weekly_summary"
         if self.monthly:
             return "monthly_dossier"
-        if self.table:
+        if self.table or self.retry_table:
             return "daily_table"
         return None
 
@@ -111,6 +116,13 @@ def find_due_jobs(cadence: SyncCadence, local_now: datetime) -> DueJobs:
         if weekly_slot_reached and cadence.last_table_period != this_week:
             due.table = this_week
 
+    this_day = today.isoformat()
+    if wall_clock.time() >= END_OF_DAY_AT and cadence.last_refresh_period != this_day:
+        due.refresh = this_day
+
+    if cadence.table_sync_pending:
+        due.retry_table = True
+
     return due
 
 
@@ -126,6 +138,16 @@ async def _set_cadence_fields(integration: Integration, fields: dict[str, Any]) 
     )
 
 
+async def _refresh_stale_summaries(user_id: str) -> None:
+    # Best effort, at most once a night: a failure waits for the next night instead of the
+    # retry back-off, so a broken render cannot regenerate summaries with Gemini every tick
+    try:
+        await GoogleDocsService.refresh_stale_summaries(user_id)
+    except Exception as exc:
+        logger.warning(f"Stale summary refresh failed for user {user_id}: {exc}")
+        await GoogleDocsService.record_sync_failure(user_id, exc)
+
+
 async def process_integration(integration: Integration, now: datetime) -> str:
     """Runs one user's due jobs. Returns "idle", "waiting", "synced" or "failed"."""
     cadence = integration.cadence
@@ -134,22 +156,24 @@ async def process_integration(integration: Integration, now: datetime) -> str:
 
     due = find_due_jobs(cadence, now.astimezone(get_zone(cadence.timezone)))
     cadence_type = due.cadence_type
-    if cadence_type is None:
+    if cadence_type is None and due.refresh is None:
         return "idle"
 
     try:
-        has_tasks = await Task.find({"user_id": integration.user_id}).count() > 0
-        # Nothing to summarize yet: the period simply counts as done
-        if has_tasks or cadence_type == "daily_table":
-            await GoogleDocsService.sync_sprint_to_doc(
-                user_id=integration.user_id, cadence_type=cadence_type, force=True
-            )
+        if cadence_type is not None:
+            has_tasks = await Task.find({"user_id": integration.user_id}).count() > 0
+            # Nothing to summarize yet: the period simply counts as done
+            if has_tasks or cadence_type == "daily_table":
+                await GoogleDocsService.sync_sprint_to_doc(
+                    user_id=integration.user_id, cadence_type=cadence_type, force=True
+                )
     except Exception as exc:
         failures = cadence.auto_sync_failures + 1
         delay = min(FIRST_RETRY_DELAY * 2 ** min(failures - 1, 10), MAX_RETRY_DELAY)
         await _set_cadence_fields(
             integration, {"auto_sync_failures": failures, "auto_sync_retry_at": now + delay}
         )
+        await GoogleDocsService.record_sync_failure(integration.user_id, exc)
         logger.warning(
             f"Scheduled {cadence_type} sync failed for user {integration.user_id} "
             f"(attempt {failures}, retrying in {delay}): {exc}"
@@ -163,8 +187,14 @@ async def process_integration(integration: Integration, now: datetime) -> str:
         done["last_monthly_period"] = due.monthly
     if due.table:
         done["last_table_period"] = due.table
+    if due.refresh:
+        # After the scheduled sync, so a summary it just rewrote is not refreshed twice
+        await _refresh_stale_summaries(integration.user_id)
+        done["last_refresh_period"] = due.refresh
     await _set_cadence_fields(integration, done)
-    logger.info(f"Scheduled {cadence_type} sync completed for user {integration.user_id}")
+    logger.info(
+        f"Scheduled {cadence_type or 'summary refresh'} job completed for user {integration.user_id}"
+    )
     return "synced"
 
 

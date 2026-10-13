@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -34,6 +34,10 @@ class SyncCadenceResponse(BaseModel):
     last_weekly_sync_at: datetime | None = None
     last_monthly_sync_at: datetime | None = None
     timezone: str = "UTC"
+    table_sync_pending: bool = False
+    last_sync_error: str | None = None
+    last_sync_error_at: datetime | None = None
+    last_sync_error_retryable: bool = True
 
 
 class SyncCadenceUpdateRequest(BaseModel):
@@ -70,6 +74,25 @@ class IntegrationStatusResponse(BaseModel):
     remaining_manual_syncs_month: int = 2
 
 
+class SummaryState(BaseModel):
+    key: str
+    generated: bool = Field(..., description="A summary for this period exists in the document")
+    stale: bool = Field(
+        ..., description="Tasks were added to or removed from the period since it was written"
+    )
+    summarized_task_count: int | None = None
+    current_task_count: int
+    generated_at: datetime | None = None
+
+
+class SummaryStatusResponse(BaseModel):
+    week_num: int
+    week_start: date
+    week_end: date
+    weekly: SummaryState
+    monthly: SummaryState
+
+
 class TargetDocUpdateRequest(BaseModel):
     target_doc_id: str = Field(
         ..., min_length=1, description="Google Doc ID or full Google Doc URL"
@@ -99,7 +122,20 @@ class SyncDocsRequest(BaseModel):
         description="Structure to sync: daily table, weekly rollup, monthly dossier, or all",
     )
     executive_summary: str | None = Field(
-        None, description="Optional custom or AI-drafted executive summary"
+        None,
+        max_length=20000,
+        description="Previewed weekly summary to use instead of generating one",
+    )
+    monthly_dossier: str | None = Field(
+        None,
+        max_length=20000,
+        description="Previewed monthly dossier to use instead of generating one",
+    )
+    weekly_fingerprint: str | None = Field(
+        None, max_length=64, description="`fingerprint` from the weekly preview response"
+    )
+    monthly_fingerprint: str | None = Field(
+        None, max_length=64, description="`fingerprint` from the monthly preview response"
     )
     include_contributions: bool = Field(
         default=True, description="Whether to include task contribution logs"

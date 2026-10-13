@@ -8,13 +8,15 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from loguru import logger
 
 from app.core.config import settings
 from app.core.security import decrypt_token, encrypt_token
 from app.core.timezones import get_zone, to_local
-from app.models.integration import GoogleTokens, Integration, SyncCadence
+from app.models.integration import GoogleTokens, Integration, SummaryMeta, SyncCadence
 from app.models.task import Task
+from app.services import summary_periods
 from app.services.task_service import TaskService
 
 
@@ -468,29 +470,8 @@ class GoogleDocsService:
 
     @staticmethod
     def get_month_calendar_weeks(year: int, month: int) -> list[dict[str, Any]]:
-        """
-        Partitions any month into Monday-to-Sunday calendar weeks matching the exact
-        date boundary convention seen in Tethr_Task_Documentation_January_2026.docx.
-        """
-        _, last_day = calendar.monthrange(year, month)
-        weeks = []
-        current_start = date(year, month, 1)
-        week_num = 1
-        while current_start.month == month:
-            days_until_sunday = 6 - current_start.weekday()
-            current_end = current_start + timedelta(days=days_until_sunday)
-            if current_end.month != month:
-                current_end = date(year, month, last_day)
-            weeks.append({
-                "week_num": week_num,
-                "start_date": current_start,
-                "end_date": current_end,
-                "start_str": current_start.strftime("%d/%m/%Y"),
-                "end_str": current_end.strftime("%d/%m/%Y"),
-            })
-            week_num += 1
-            current_start = current_end + timedelta(days=1)
-        return weeks
+        """Monday-to-Sunday calendar weeks of a month (see summary_periods)."""
+        return summary_periods.month_calendar_weeks(year, month)
 
     WEEKDAY_MAP = {
         "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
@@ -1173,7 +1154,181 @@ class GoogleDocsService:
             return res.get("success", False)
         except Exception as exc:
             logger.warning(f"Realtime sync to Google Docs failed for user {user_id}: {exc}")
+            # Nobody is waiting on this sync, so leave a retry for the scheduler and an
+            # error the dashboard and MCP tools can show
+            await GoogleDocsService.record_sync_failure(user_id, exc, table_pending=True)
             return False
+
+    @staticmethod
+    def is_retryable_error(exc: Exception) -> bool:
+        """False when retrying cannot help until the user acts (reconnect, fix the doc)."""
+        if isinstance(exc, ValueError):
+            # Raised for expired Google credentials and a missing target doc
+            return False
+        if isinstance(exc, HttpError):
+            # Doc deleted, access revoked, or a malformed request; 429 and 5xx are temporary
+            return exc.resp.status not in (400, 401, 403, 404)
+        return True
+
+    @staticmethod
+    async def record_sync_failure(
+        user_id: str, exc: Exception, table_pending: bool = False
+    ) -> None:
+        fields: dict[str, Any] = {
+            "cadence.last_sync_error": str(exc) or exc.__class__.__name__,
+            "cadence.last_sync_error_at": datetime.now(UTC),
+            "cadence.last_sync_error_retryable": GoogleDocsService.is_retryable_error(exc),
+        }
+        if table_pending:
+            fields["cadence.table_sync_pending"] = True
+        # Targeted $set: never overwrite the rest of a document another sync may be saving
+        await Integration.get_motor_collection().update_one(
+            {"user_id": user_id, "provider": "google_docs"}, {"$set": fields}
+        )
+
+    @staticmethod
+    def _store_summary(
+        integration: Integration,
+        key: str,
+        text: str,
+        source_tasks: list[Task],
+        client_fingerprint: str | None = None,
+    ) -> None:
+        """Caches a summary with the fingerprint of the tasks it was written about."""
+        computed = summary_periods.fingerprint(source_tasks)
+        integration.cached_summaries[key] = text
+        integration.summary_meta[key] = SummaryMeta(
+            fingerprint=client_fingerprint or computed,
+            # A previewed text may cover a different task set than the one at sync time
+            task_count=len(source_tasks) if client_fingerprint in (None, computed) else None,
+        )
+
+    @staticmethod
+    async def _render_document(
+        integration: Integration,
+        credentials: Any,
+        tasks: list[Task],
+        period: summary_periods.TargetPeriod,
+        today: date,
+        cadence_type: str,
+        weekly_summary: str | None = None,
+        monthly_dossier: str | None = None,
+    ) -> None:
+        # The Google client is blocking and the render makes many API calls, so it runs
+        # on a worker thread to keep the event loop (and every other request) responsive.
+        service = await asyncio.to_thread(
+            build, "docs", "v1", credentials=credentials, cache_discovery=False
+        )
+        await asyncio.to_thread(
+            GoogleDocsService.render_structured_ledger_document,
+            service=service,
+            document_id=integration.target_doc_id,
+            tasks=tasks,
+            weekly_summary=weekly_summary,
+            monthly_dossier=monthly_dossier,
+            cadence_type=cadence_type,
+            cadence=integration.cadence,
+            cached_summaries=integration.cached_summaries,
+            today=today,
+            target_year=period.year,
+            target_month=period.month,
+            target_week_num=period.week_num,
+        )
+
+    @staticmethod
+    async def get_period_tasks(user_id: str, mode: Literal["weekly", "monthly"]) -> list[Task]:
+        """The tasks a weekly summary or monthly dossier synced now would be written about."""
+        integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+        zone = get_zone(integration.cadence.timezone if integration else None)
+        tasks = await Task.find({"user_id": user_id}).sort("+date").to_list()
+        tasks = [t.model_copy(update={"date": to_local(t.date, zone)}) for t in tasks]
+        period = summary_periods.target_period(tasks, datetime.now(UTC).astimezone(zone))
+        if mode == "monthly":
+            return summary_periods.month_tasks(tasks, period)
+        return summary_periods.week_tasks(tasks, period)
+
+    @staticmethod
+    async def get_summary_status(user_id: str) -> dict[str, Any] | None:
+        """Whether the target week's summary and month's dossier exist and are still current."""
+        integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+        if not integration:
+            return None
+        zone = get_zone(integration.cadence.timezone)
+        tasks = await Task.find({"user_id": user_id}).to_list()
+        tasks = [t.model_copy(update={"date": to_local(t.date, zone)}) for t in tasks]
+        period = summary_periods.target_period(tasks, datetime.now(UTC).astimezone(zone))
+
+        def state(key: str) -> dict[str, Any]:
+            return summary_periods.summary_state(
+                integration.summary_meta, key in integration.cached_summaries, tasks, key
+            )
+
+        return {
+            "week_num": period.week_num,
+            "week_start": period.week_start,
+            "week_end": period.week_end,
+            "weekly": state(period.weekly_key),
+            "monthly": state(period.monthly_key),
+        }
+
+    @staticmethod
+    async def refresh_stale_summaries(user_id: str, max_refresh: int = 4) -> int:
+        """
+        Rewrites cached summaries whose period gained or lost tasks since they were written,
+        then re-renders the document once. Run by the nightly scheduler job, so it never uses
+        the user's manual quota. Returns how many summaries were refreshed.
+        """
+        lock = GoogleDocsService._render_locks.setdefault(user_id, asyncio.Lock())
+        async with lock:
+            integration = await Integration.find_one(
+                {"user_id": user_id, "provider": "google_docs"}
+            )
+            # Cheap exit for the common case: nothing was ever summarized with a fingerprint
+            if not integration or not integration.target_doc_id or not integration.summary_meta:
+                return 0
+
+            zone = get_zone(integration.cadence.timezone)
+            tasks = await Task.find({"user_id": user_id}).sort("+date").to_list()
+            tasks = [t.model_copy(update={"date": to_local(t.date, zone)}) for t in tasks]
+            stale = summary_periods.stale_summary_keys(
+                integration.cached_summaries, integration.summary_meta, tasks
+            )[:max_refresh]
+            if not stale:
+                return 0
+
+            credentials = await GoogleDocsService.get_credentials(user_id)
+            if not credentials:
+                raise ValueError(
+                    "Google authentication credentials are invalid or expired. "
+                    "Please re-authenticate."
+                )
+
+            from app.services.ai_service import AIService
+
+            for key in stale:
+                period_tasks = summary_periods.tasks_for_key(tasks, key) or []
+                if not period_tasks:
+                    # Every task of that period was deleted: drop the summary entirely
+                    integration.cached_summaries.pop(key, None)
+                    integration.summary_meta.pop(key, None)
+                    continue
+                mode = "monthly" if key.startswith("monthly:") else "weekly"
+                text, _ = await AIService.generate_summary(tasks=period_tasks, mode=mode)
+                GoogleDocsService._store_summary(integration, key, text, period_tasks)
+
+            now = datetime.now(UTC)
+            await GoogleDocsService._render_document(
+                integration,
+                credentials,
+                tasks,
+                summary_periods.target_period(tasks, now.astimezone(zone)),
+                today=now.astimezone(zone).date(),
+                cadence_type="daily_table",
+            )
+            integration.updated_at = now
+            await integration.save()
+            logger.info(f"Refreshed {len(stale)} stale summary(ies) for user {user_id}: {stale}")
+            return len(stale)
 
     @staticmethod
     async def sync_sprint_to_doc(
@@ -1183,6 +1338,9 @@ class GoogleDocsService:
         executive_summary: str | None = None,
         include_contributions: bool = True,
         force: bool = False,
+        monthly_dossier: str | None = None,
+        weekly_fingerprint: str | None = None,
+        monthly_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         """
         Executes Google Docs batchUpdate to sync structured impact tables and summaries
@@ -1191,6 +1349,10 @@ class GoogleDocsService:
         The document is rebuilt from the user's entire ledger on every sync, so `task_ids`
         only selects which tasks the AI summaries are written about. Without `task_ids`,
         the weekly summary covers the target week and the monthly dossier the target month.
+
+        `executive_summary` / `monthly_dossier` are previewed texts to use instead of
+        generating new ones; their `*_fingerprint` (from the preview response) records which
+        tasks they were written about, so a later change to that period marks them stale.
         """
         lock = GoogleDocsService._render_locks.setdefault(user_id, asyncio.Lock())
         async with lock:
@@ -1199,6 +1361,9 @@ class GoogleDocsService:
                 task_ids=task_ids,
                 cadence_type=cadence_type,
                 executive_summary=executive_summary,
+                monthly_dossier=monthly_dossier,
+                weekly_fingerprint=weekly_fingerprint,
+                monthly_fingerprint=monthly_fingerprint,
                 force=force,
             )
 
@@ -1208,6 +1373,9 @@ class GoogleDocsService:
         task_ids: list[str] | None,
         cadence_type: Literal["daily_table", "weekly_summary", "monthly_dossier", "all"],
         executive_summary: str | None,
+        monthly_dossier: str | None,
+        weekly_fingerprint: str | None,
+        monthly_fingerprint: str | None,
         force: bool,
     ) -> dict[str, Any]:
         integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
@@ -1238,23 +1406,9 @@ class GoogleDocsService:
         zone = get_zone(integration.cadence.timezone)
         tasks = [t.model_copy(update={"date": to_local(t.date, zone)}) for t in tasks]
 
-        # 3. Target date and week calculation for summaries, caching and rendering
+        # 3. The week and month that summaries are written for
         now = datetime.now(UTC)
-        today = now.astimezone(zone).date()
-        latest_task_date = max((t.date for t in tasks), default=now.astimezone(zone)).date()
-        if latest_task_date.year == today.year and latest_task_date.month == today.month:
-            anchor_date = today
-        else:
-            anchor_date = latest_task_date
-
-        target_year = anchor_date.year
-        target_month = anchor_date.month
-        target_cal_weeks = GoogleDocsService.get_month_calendar_weeks(target_year, target_month)
-        target_week = next(
-            (w for w in target_cal_weeks if w["start_date"] <= anchor_date <= w["end_date"]),
-            target_cal_weeks[-1],
-        )
-        target_week_num = target_week["week_num"]
+        period = summary_periods.target_period(tasks, now.astimezone(zone))
 
         # 4. Generate summaries if needed, from the tasks they are about
         from app.services.ai_service import AIService
@@ -1263,55 +1417,42 @@ class GoogleDocsService:
             wanted = set(task_ids)
             week_source = month_source = [t for t in tasks if str(t.id) in wanted]
         else:
-            week_source = [
-                t
-                for t in tasks
-                if target_week["start_date"] <= t.date.date() <= target_week["end_date"]
-            ]
-            month_source = [
-                t for t in tasks if (t.date.year, t.date.month) == (target_year, target_month)
-            ]
+            week_source = summary_periods.week_tasks(tasks, period)
+            month_source = summary_periods.month_tasks(tasks, period)
 
-        weekly_summary = executive_summary
-        monthly_dossier = None
+        wants_weekly = cadence_type in ["weekly_summary", "all"]
+        wants_monthly = cadence_type in ["monthly_dossier", "all"]
+        # A previewed text is only used for the summary kind it was written as
+        weekly_summary = executive_summary if wants_weekly else None
+        monthly_text = monthly_dossier if wants_monthly else None
+        weekly_fp = weekly_fingerprint if weekly_summary else None
+        monthly_fp = monthly_fingerprint if monthly_text else None
 
-        if cadence_type in ["weekly_summary", "all"] and not weekly_summary and week_source:
+        if wants_weekly and not weekly_summary and week_source:
             weekly_summary, _ = await AIService.generate_summary(tasks=week_source, mode="weekly")
 
-        if cadence_type in ["monthly_dossier", "all"] and month_source:
-            monthly_dossier, _ = await AIService.generate_summary(
-                tasks=month_source, mode="monthly"
-            )
-
-        if integration.cached_summaries is None:
-            integration.cached_summaries = {}
+        if wants_monthly and not monthly_text and month_source:
+            monthly_text, _ = await AIService.generate_summary(tasks=month_source, mode="monthly")
 
         if weekly_summary:
-            integration.cached_summaries[f"weekly:{target_year}:{target_month}:{target_week_num}"] = weekly_summary
+            GoogleDocsService._store_summary(
+                integration, period.weekly_key, weekly_summary, week_source, weekly_fp
+            )
+        if monthly_text:
+            GoogleDocsService._store_summary(
+                integration, period.monthly_key, monthly_text, month_source, monthly_fp
+            )
 
-        if monthly_dossier:
-            integration.cached_summaries[f"monthly:{target_year}:{target_month}"] = monthly_dossier
-
-        # 5. Render the structured ledger document idempotently with scheduling rules.
-        # The Google client is blocking and the render makes many API calls, so it runs
-        # on a worker thread to keep the event loop (and every other request) responsive.
-        service = await asyncio.to_thread(
-            build, "docs", "v1", credentials=credentials, cache_discovery=False
-        )
-        await asyncio.to_thread(
-            GoogleDocsService.render_structured_ledger_document,
-            service=service,
-            document_id=integration.target_doc_id,
-            tasks=tasks,
-            weekly_summary=weekly_summary,
-            monthly_dossier=monthly_dossier,
+        # 5. Render the structured ledger document idempotently with scheduling rules
+        await GoogleDocsService._render_document(
+            integration,
+            credentials,
+            tasks,
+            period,
+            today=now.astimezone(zone).date(),
             cadence_type=cadence_type,
-            cadence=integration.cadence,
-            cached_summaries=integration.cached_summaries,
-            today=today,
-            target_year=target_year,
-            target_month=target_month,
-            target_week_num=target_week_num,
+            weekly_summary=weekly_summary,
+            monthly_dossier=monthly_text,
         )
 
         # 6. Mark tasks as synced and record sync timestamp
@@ -1319,6 +1460,11 @@ class GoogleDocsService:
             integration.cadence.last_weekly_sync_at = now
         if cadence_type in ["monthly_dossier", "all"]:
             integration.cadence.last_monthly_sync_at = now
+        # Every sync rebuilds the whole document, so any earlier failure is now repaired
+        integration.cadence.table_sync_pending = False
+        integration.cadence.last_sync_error = None
+        integration.cadence.last_sync_error_at = None
+        integration.cadence.last_sync_error_retryable = True
         integration.updated_at = now
         await integration.save()
 

@@ -37,8 +37,25 @@ class SyncCadence(BaseModel):
     last_table_period: str | None = None  # "2026-10-12" (end_of_day) or "2026-W41" (weekly)
     last_weekly_period: str | None = None  # "2026-W41"
     last_monthly_period: str | None = None  # "2026-10"
+    last_refresh_period: str | None = None  # "2026-10-12": nightly stale-summary refresh
     auto_sync_failures: int = 0
     auto_sync_retry_at: datetime | None = None
+
+    # Background (unattended) sync health, shown in the dashboard and MCP tool output.
+    # Set when a realtime or scheduled sync fails; cleared by the next successful sync.
+    table_sync_pending: bool = False  # a failed realtime table sync the scheduler must retry
+    last_sync_error: str | None = None
+    last_sync_error_at: datetime | None = None
+    # False when the user must act (reconnect Google, pick a doc) before a retry can work
+    last_sync_error_retryable: bool = True
+
+
+class SummaryMeta(BaseModel):
+    """What a cached summary was written about, to detect when its period's tasks change."""
+
+    fingerprint: str  # summary_periods.fingerprint() of the summarized task IDs
+    task_count: int | None = None  # None when the text came from a client preview
+    generated_at: datetime = Field(default_factory=utc_now)
 
 
 class Integration(Document):
@@ -49,6 +66,8 @@ class Integration(Document):
     google_tokens: GoogleTokens
     cadence: SyncCadence = Field(default_factory=SyncCadence)
     cached_summaries: dict[str, str] = Field(default_factory=dict)
+    # Same keys as cached_summaries ("weekly:2026:10:2", "monthly:2026:10")
+    summary_meta: dict[str, SummaryMeta] = Field(default_factory=dict)
     updated_at: datetime = Field(default_factory=utc_now)
 
     class Settings:
