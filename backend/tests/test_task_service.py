@@ -1,7 +1,7 @@
 import pytest
 
 from app.schemas.task import TaskCreate, TaskUpdate
-from app.services.task_service import TaskService
+from app.services.tasks import TaskService
 
 
 @pytest.mark.asyncio

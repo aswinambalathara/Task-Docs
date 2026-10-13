@@ -53,7 +53,7 @@ class SyncCadence(BaseModel):
 class SummaryMeta(BaseModel):
     """What a cached summary was written about, to detect when its period's tasks change."""
 
-    fingerprint: str  # summary_periods.fingerprint() of the summarized task IDs
+    fingerprint: str  # periods.fingerprint() of the summarized task IDs
     task_count: int | None = None  # None when the text came from a client preview
     generated_at: datetime = Field(default_factory=utc_now)
 

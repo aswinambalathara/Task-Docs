@@ -4,6 +4,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.models.task import Task
+from app.services.ai.prompts import MONTHLY_INSTRUCTION, WEEKLY_INSTRUCTION
 
 
 class AIService:
@@ -12,24 +13,6 @@ class AIService:
     Provides automated weekly rollups, monthly appraisal dossiers, and deterministic safety nets.
     """
 
-    WEEKLY_INSTRUCTION = (
-        "You are an expert engineering leader. Review the developer's weekly contribution logs. "
-        "Produce a structured Weekly Rollup with: "
-        "1. Key Contributions (bullet points citing project and outcome) "
-        "2. Quantified Achievements (count of issues resolved, count of major features/improvements) "
-        "3. Key Outcomes (2-3 sentences on tangible business/system impact) "
-        "4. Blockers or Carry-Over Work."
-    )
-
-    MONTHLY_INSTRUCTION = (
-        "You are an executive engineering leader and career appraisal mentor. "
-        "Synthesize the developer's monthly contribution records into an audit-proof Performance Appraisal Dossier: "
-        "1. Executive Summary & Key Outcomes (tangible value shipped) "
-        "2. Technical Areas & Skills Demonstrated (Python, Next.js, Distributed Systems, etc.) "
-        "3. Top Challenges Encountered & How They Were Resolved (root cause & engineering decision) "
-        "4. Key Technical Learnings & Growth Areas "
-        "5. Measurable Metrics (Before vs After impact where available)."
-    )
 
     @classmethod
     def _format_task_context(cls, tasks: list[Task], custom_context: str | None = None) -> str:
@@ -159,7 +142,7 @@ class AIService:
             client = genai.Client(api_key=effective_key)
             prompt_content = cls._format_task_context(tasks, custom_context)
             system_instruction = (
-                cls.MONTHLY_INSTRUCTION if mode == "monthly" else cls.WEEKLY_INSTRUCTION
+                MONTHLY_INSTRUCTION if mode == "monthly" else WEEKLY_INSTRUCTION
             )
 
             for model_name in ("gemini-2.0-flash", "gemini-2.5-flash"):

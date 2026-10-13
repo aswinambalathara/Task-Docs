@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.core import security
 from app.core.config import settings
-from app.services.mcp_service import MCPService
+from app.services.mcp_auth import MCPService
 
 ISSUER = "https://test-clerk.clerk.accounts.dev"
 FRONTEND = "http://localhost:3000"

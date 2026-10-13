@@ -3,7 +3,7 @@ from httpx import AsyncClient
 
 from app.core.config import settings
 from app.models.task import Contribution, Task
-from app.services.ai_service import AIService
+from app.services.ai.summarizer import AIService
 
 
 def test_deterministic_weekly_summary():

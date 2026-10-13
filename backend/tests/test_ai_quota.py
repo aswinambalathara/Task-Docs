@@ -2,7 +2,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
-from app.services.ai_service import AIService
+from app.services.ai.summarizer import AIService
 
 
 async def _create_task(client: AsyncClient, headers: dict) -> str:

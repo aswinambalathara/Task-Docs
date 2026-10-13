@@ -3,13 +3,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.oauth import oauth_router
+from app.api.oauth_discovery import oauth_router
 from app.api.v1 import api_v1_router
 from app.core.config import audit_environment, settings
 from app.core.db import close_db, init_db
 from app.core.logger import logger, setup_logging
 from app.mcp import mcp, setup_mcp_mounting
-from app.services.auto_sync import AutoSyncScheduler
+from app.services.scheduler import AutoSyncScheduler
 
 # Initialize Loguru multi-file logging
 setup_logging()

@@ -10,10 +10,10 @@ from httpx import AsyncClient
 from app.core.security import encrypt_token
 from app.models.integration import GoogleTokens, Integration, SummaryMeta, SyncCadence
 from app.models.task import Task
-from app.services import summary_periods
-from app.services.ai_service import AIService
-from app.services.auto_sync import find_due_jobs, run_due_jobs
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
+from app.services.ai.summarizer import AIService
+from app.services.docs import periods
+from app.services.scheduler import find_due_jobs, run_due_jobs
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -42,9 +42,9 @@ def _fake_google(summaries: list[tuple[str, list[str]]] | None = None):
 
     render = MagicMock()
     with (
-        patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())),
-        patch("app.services.google_docs.build", return_value=object()),
-        patch.object(GoogleDocsService, "render_structured_ledger_document", render),
+        patch.object(docs.oauth, "get_credentials", AsyncMock(return_value=object())),
+        patch("app.services.docs.renderer.build", return_value=object()),
+        patch.object(docs.renderer, "render_structured_ledger_document", render),
         patch.object(AIService, "generate_summary", side_effect=fake_summary),
     ):
         yield render
@@ -59,8 +59,8 @@ def _headers(user_id: str) -> dict:
 
 def test_fingerprint_ignores_order_and_changes_with_task_set():
     a, b, c = (Task(id=PydanticObjectId(), user_id="u", title=t) for t in "abc")
-    assert summary_periods.fingerprint([a, b]) == summary_periods.fingerprint([b, a])
-    assert summary_periods.fingerprint([a, b]) != summary_periods.fingerprint([a, b, c])
+    assert periods.fingerprint([a, b]) == periods.fingerprint([b, a])
+    assert periods.fingerprint([a, b]) != periods.fingerprint([a, b, c])
 
 
 def test_stale_keys_skip_legacy_summaries_and_sort_newest_first():
@@ -73,14 +73,14 @@ def test_stale_keys_skip_legacy_summaries_and_sort_newest_first():
     tasks = [sep, oct_w1, oct_w2]
     meta = {
         # Written before oct_w2 existed
-        "monthly:2026:10": SummaryMeta(fingerprint=summary_periods.fingerprint([oct_w1])),
+        "monthly:2026:10": SummaryMeta(fingerprint=periods.fingerprint([oct_w1])),
         "weekly:2026:10:2": SummaryMeta(fingerprint="outdated"),
-        "weekly:2026:10:1": SummaryMeta(fingerprint=summary_periods.fingerprint([oct_w1])),
+        "weekly:2026:10:1": SummaryMeta(fingerprint=periods.fingerprint([oct_w1])),
         "weekly:2026:9:2": SummaryMeta(fingerprint="outdated"),
     }
     cached = {k: "text" for k in meta} | {"weekly:2026:8:1": "legacy, no fingerprint"}
 
-    assert summary_periods.stale_summary_keys(cached, meta, tasks) == [
+    assert periods.stale_summary_keys(cached, meta, tasks) == [
         "monthly:2026:10",
         "weekly:2026:10:2",
         "weekly:2026:9:2",
@@ -97,7 +97,7 @@ async def test_new_task_marks_weekly_summary_stale(client: AsyncClient):
     await Task(user_id=user_id, title="First task").insert()
 
     with _fake_google():
-        await GoogleDocsService.sync_sprint_to_doc(
+        await docs.sync.sync_sprint_to_doc(
             user_id=user_id, cadence_type="weekly_summary", force=True
         )
 
@@ -125,18 +125,18 @@ async def test_refresh_rewrites_only_stale_summaries_and_renders_once():
     await Task(user_id=user_id, title="Early task").insert()
 
     with _fake_google():
-        await GoogleDocsService.sync_sprint_to_doc(user_id=user_id, cadence_type="all", force=True)
+        await docs.sync.sync_sprint_to_doc(user_id=user_id, cadence_type="all", force=True)
 
     # Nothing changed yet: no Gemini call, no render
     seen: list[tuple[str, list[str]]] = []
     with _fake_google(seen) as render:
-        assert await GoogleDocsService.refresh_stale_summaries(user_id) == 0
+        assert await docs.summaries.refresh_stale_summaries(user_id) == 0
         assert seen == [] and render.call_count == 0
 
     await Task(user_id=user_id, title="Late task").insert()
 
     with _fake_google(seen) as render:
-        assert await GoogleDocsService.refresh_stale_summaries(user_id) == 2
+        assert await docs.summaries.refresh_stale_summaries(user_id) == 2
         assert render.call_count == 1
 
     assert sorted(seen) == [
@@ -147,7 +147,7 @@ async def test_refresh_rewrites_only_stale_summaries_and_renders_once():
     period_keys = [k for k in stored.cached_summaries if k.startswith("weekly:")]
     assert stored.cached_summaries[period_keys[0]] == "weekly summary of 2 task(s)"
 
-    status = await GoogleDocsService.get_summary_status(user_id)
+    status = await docs.summaries.get_summary_status(user_id)
     assert status["weekly"]["stale"] is False
     assert status["monthly"]["stale"] is False
 
@@ -160,13 +160,13 @@ async def test_refresh_drops_summary_when_all_its_tasks_are_deleted():
     await only.insert()
 
     with _fake_google():
-        await GoogleDocsService.sync_sprint_to_doc(
+        await docs.sync.sync_sprint_to_doc(
             user_id=user_id, cadence_type="weekly_summary", force=True
         )
     await only.delete()
 
     with _fake_google() as render:
-        assert await GoogleDocsService.refresh_stale_summaries(user_id) == 1
+        assert await docs.summaries.refresh_stale_summaries(user_id) == 1
         assert render.call_count == 1
 
     stored = await Integration.find_one({"user_id": user_id})
@@ -181,7 +181,7 @@ async def test_previewed_text_keeps_the_fingerprint_it_was_written_about():
     await Task(user_id=user_id, title="Task").insert()
 
     with _fake_google() as render:
-        await GoogleDocsService.sync_sprint_to_doc(
+        await docs.sync.sync_sprint_to_doc(
             user_id=user_id,
             cadence_type="weekly_summary",
             executive_summary="Previewed text",
@@ -190,7 +190,7 @@ async def test_previewed_text_keeps_the_fingerprint_it_was_written_about():
         )
         assert render.call_args.kwargs["weekly_summary"] == "Previewed text"
 
-    status = await GoogleDocsService.get_summary_status(user_id)
+    status = await docs.summaries.get_summary_status(user_id)
     # The preview covered a different task set, so the summary is already out of date
     assert status["weekly"]["stale"] is True
     assert status["weekly"]["summarized_task_count"] is None
@@ -207,7 +207,7 @@ async def test_monthly_preview_is_stored_as_monthly_not_weekly():
 
     seen: list[tuple[str, list[str]]] = []
     with _fake_google(seen) as render:
-        await GoogleDocsService.sync_sprint_to_doc(
+        await docs.sync.sync_sprint_to_doc(
             user_id=user_id,
             cadence_type="monthly_dossier",
             # Old clients sent the monthly preview here; it must not become a weekly summary
@@ -269,8 +269,8 @@ async def test_preview_without_task_ids_covers_this_weeks_tasks(client: AsyncCli
     assert res.status_code == 200, res.text
     assert seen == [("weekly", ["This week"])]
 
-    week = await GoogleDocsService.get_period_tasks(user_id, "weekly")
-    assert res.json()["fingerprint"] == summary_periods.fingerprint(week)
+    week = await docs.summaries.get_period_tasks(user_id, "weekly")
+    assert res.json()["fingerprint"] == periods.fingerprint(week)
 
 
 # --- Nightly scheduler job ---
@@ -295,8 +295,8 @@ async def test_tick_runs_refresh_once_and_failures_do_not_block_other_jobs():
     sync = AsyncMock(return_value={"success": True})
     refresh = AsyncMock(side_effect=RuntimeError("Docs API down"))
     with (
-        patch.object(GoogleDocsService, "sync_sprint_to_doc", sync),
-        patch.object(GoogleDocsService, "refresh_stale_summaries", refresh),
+        patch.object(docs.sync, "sync_sprint_to_doc", sync),
+        patch.object(docs.summaries, "refresh_stale_summaries", refresh),
     ):
         await run_due_jobs(now)
         await run_due_jobs(now + timedelta(minutes=10))

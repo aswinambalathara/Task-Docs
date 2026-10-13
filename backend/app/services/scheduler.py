@@ -36,7 +36,7 @@ from app.core.logger import logger
 from app.core.timezones import get_zone
 from app.models.integration import Integration, SyncCadence
 from app.models.task import Task
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
 
 TICK_INTERVAL_SECONDS = 600
 # Slightly shorter than the tick, so the lease is free again by the next tick
@@ -90,7 +90,7 @@ def find_due_jobs(cadence: SyncCadence, local_now: datetime) -> DueJobs:
 
     # Weekly slot: the user's weekly_day of the current Mon-Sun week, at SUMMARY_AT
     week_start = today - timedelta(days=today.weekday())
-    weekly_day = GoogleDocsService.WEEKDAY_MAP.get(cadence.weekly_day, 5)
+    weekly_day = docs.renderer.WEEKDAY_MAP.get(cadence.weekly_day, 5)
     weekly_slot = datetime.combine(week_start + timedelta(days=weekly_day), SUMMARY_AT)
     weekly_slot_reached = wall_clock >= weekly_slot
     this_week = week_key(today)
@@ -142,10 +142,10 @@ async def _refresh_stale_summaries(user_id: str) -> None:
     # Best effort, at most once a night: a failure waits for the next night instead of the
     # retry back-off, so a broken render cannot regenerate summaries with Gemini every tick
     try:
-        await GoogleDocsService.refresh_stale_summaries(user_id)
+        await docs.summaries.refresh_stale_summaries(user_id)
     except Exception as exc:
         logger.warning(f"Stale summary refresh failed for user {user_id}: {exc}")
-        await GoogleDocsService.record_sync_failure(user_id, exc)
+        await docs.sync.record_sync_failure(user_id, exc)
 
 
 async def process_integration(integration: Integration, now: datetime) -> str:
@@ -164,7 +164,7 @@ async def process_integration(integration: Integration, now: datetime) -> str:
             has_tasks = await Task.find({"user_id": integration.user_id}).count() > 0
             # Nothing to summarize yet: the period simply counts as done
             if has_tasks or cadence_type == "daily_table":
-                await GoogleDocsService.sync_sprint_to_doc(
+                await docs.sync.sync_sprint_to_doc(
                     user_id=integration.user_id, cadence_type=cadence_type, force=True
                 )
     except Exception as exc:
@@ -173,7 +173,7 @@ async def process_integration(integration: Integration, now: datetime) -> str:
         await _set_cadence_fields(
             integration, {"auto_sync_failures": failures, "auto_sync_retry_at": now + delay}
         )
-        await GoogleDocsService.record_sync_failure(integration.user_id, exc)
+        await docs.sync.record_sync_failure(integration.user_id, exc)
         logger.warning(
             f"Scheduled {cadence_type} sync failed for user {integration.user_id} "
             f"(attempt {failures}, retrying in {delay}): {exc}"

@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import settings
 from app.mcp.server import current_mcp_user_var
-from app.services.mcp_service import MCPService
+from app.services.mcp_auth import MCPService
 
 
 def is_mcp_path(path: str) -> bool:

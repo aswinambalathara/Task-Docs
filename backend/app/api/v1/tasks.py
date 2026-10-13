@@ -15,7 +15,7 @@ from app.schemas.task import (
     TaskType,
     TaskUpdate,
 )
-from app.services.task_service import TaskService
+from app.services.tasks import TaskService
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 

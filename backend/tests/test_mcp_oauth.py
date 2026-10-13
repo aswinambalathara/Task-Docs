@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.mcp import mcp
 from app.models.mcp import MCPAuthCode
-from app.services.mcp_service import _hash
+from app.services.mcp_auth import _hash
 
 BOB_HEADERS = {"Authorization": "Bearer mock_user_bob"}
 

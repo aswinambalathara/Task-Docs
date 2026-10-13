@@ -7,9 +7,8 @@ import pytest
 from app.core.security import encrypt_token
 from app.models.integration import GoogleTokens, Integration, SyncCadence
 from app.models.task import Task
-from app.services import auto_sync
-from app.services.auto_sync import acquire_lease, find_due_jobs, run_due_jobs
-from app.services.google_docs import GoogleDocsService
+from app.services import docs, scheduler
+from app.services.scheduler import acquire_lease, find_due_jobs, run_due_jobs
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -108,7 +107,7 @@ async def test_tick_runs_due_jobs_once_in_user_time_zone():
     sync = AsyncMock(side_effect=fake_sync)
     # Saturday 12:35 UTC = 18:05 IST: due for the IST user, still before 18:00 for the UTC user
     now = datetime(2026, 10, 10, 12, 35, tzinfo=UTC)
-    with patch.object(GoogleDocsService, "sync_sprint_to_doc", sync):
+    with patch.object(docs.sync, "sync_sprint_to_doc", sync):
         await run_due_jobs(now)
         await run_due_jobs(now + timedelta(minutes=10))
 
@@ -129,14 +128,14 @@ async def test_failed_sync_backs_off_then_retries():
     now = datetime(2026, 10, 10, 12, 35, tzinfo=UTC)
 
     failing = AsyncMock(side_effect=ValueError("Google credentials revoked"))
-    with patch.object(GoogleDocsService, "sync_sprint_to_doc", failing):
+    with patch.object(docs.sync, "sync_sprint_to_doc", failing):
         await run_due_jobs(now)
     stored = await Integration.get(integration.id)
     assert stored.cadence.auto_sync_failures == 1
     assert stored.cadence.last_weekly_period is None
 
     working = AsyncMock(return_value={"success": True})
-    with patch.object(GoogleDocsService, "sync_sprint_to_doc", working):
+    with patch.object(docs.sync, "sync_sprint_to_doc", working):
         await run_due_jobs(now + timedelta(minutes=5))  # still inside the back-off window
         assert _calls_for(working, user_id) == []
         await run_due_jobs(now + timedelta(minutes=11))
@@ -150,14 +149,14 @@ async def test_failed_sync_backs_off_then_retries():
 @pytest.mark.asyncio
 async def test_only_one_process_holds_the_lease(monkeypatch):
     now = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
-    monkeypatch.setattr(auto_sync, "LEASE_ID", "lease_test")
+    monkeypatch.setattr(scheduler, "LEASE_ID", "lease_test")
 
-    monkeypatch.setattr(auto_sync, "_INSTANCE_ID", "worker-a")
+    monkeypatch.setattr(scheduler, "_INSTANCE_ID", "worker-a")
     assert await acquire_lease(now) is True
 
-    monkeypatch.setattr(auto_sync, "_INSTANCE_ID", "worker-b")
+    monkeypatch.setattr(scheduler, "_INSTANCE_ID", "worker-b")
     assert await acquire_lease(now + timedelta(minutes=1)) is False
-    expired = now + timedelta(seconds=auto_sync.LEASE_SECONDS + 1)
+    expired = now + timedelta(seconds=scheduler.LEASE_SECONDS + 1)
     assert await acquire_lease(expired) is True
 
 
@@ -193,13 +192,13 @@ async def test_sync_places_tasks_on_their_local_day():
     # Monday 00:30 IST is still Sunday in UTC
     await Task(user_id=user_id, title="Late night fix", date=datetime(2026, 10, 11, 19, 0, tzinfo=UTC)).insert()
 
-    render = patch.object(GoogleDocsService, "render_structured_ledger_document")
+    render = patch.object(docs.renderer, "render_structured_ledger_document")
     with (
-        patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())),
-        patch("app.services.google_docs.build", return_value=object()),
+        patch.object(docs.oauth, "get_credentials", AsyncMock(return_value=object())),
+        patch("app.services.docs.renderer.build", return_value=object()),
         render as rendered,
     ):
-        await GoogleDocsService.sync_sprint_to_doc(user_id=user_id, cadence_type="daily_table")
+        await docs.sync.sync_sprint_to_doc(user_id=user_id, cadence_type="daily_table")
 
     tasks = rendered.call_args.kwargs["tasks"]
     assert tasks[0].date.date() == date(2026, 10, 12)

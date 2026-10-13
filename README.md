@@ -211,43 +211,34 @@ TaskDocs/
 │
 └── backend/                        # Python FastAPI Backend & FastMCP Server
     ├── app/
-    │   ├── main.py                 # FastAPI application factory & CORS configuration
-    │   ├── core/                   # Security (JWT/AES), Config, Database, Constants
-    │   │   ├── config.py           # Pydantic BaseSettings (.env loading)
-    │   │   ├── constants.py        # Central DEVELOPER_TASK_TYPES & DeveloperTaskType
-    │   │   ├── db.py               # Beanie ODM MongoDB initialization
-    │   │   ├── logger.py           # Loguru multi-file logging setup
-    │   │   └── security.py         # Clerk JWKS verification & AES-256 cipher
-    │   ├── models/                 # Beanie ODM models
-    │   │   ├── task.py             # Task model with universal impact fields
-    │   │   └── integration.py      # GoogleTokens & SyncCadence models
-    │   ├── schemas/                # Pydantic request/response schemas
-    │   │   ├── task.py             # TaskCreate, TaskUpdate, TaskResponse
-    │   │   ├── sync.py             # SyncCadenceResponse, SyncDocsRequest, TargetDoc
-    │   │   └── ai.py               # SummarizeRequest (weekly/monthly), SummarizeResponse
-    │   ├── services/               # Pure business logic layer
-    │   │   ├── task_service.py     # CRUD, filtering, search, and realtime sync hooks
-    │   │   ├── google_docs.py      # OAuth flow, daily table builder, rate-limiting
-    │   │   └── ai_service.py       # Gemini 2.0 Flash weekly/monthly appraisal engine
-    │   ├── api/                    # REST API Controllers (v1)
-    │   │   ├── tasks.py            # /api/v1/tasks endpoints
-    │   │   ├── integrations.py     # /api/v1/integrations/google endpoints
-    │   │   ├── ai.py               # /api/v1/ai/summarize endpoint
-    │   │   └── mcp_auth.py         # /api/v1/mcp/code & /api/v1/mcp/token endpoints
-    │   └── mcp/                    # FastMCP Server & SSE Transport
-    │       ├── server.py           # Tool definitions (add_task, update_task, etc.)
-    │       └── transport.py        # SSE / HTTP transport handlers
-    ├── tests/                      # Pytest asynchronous test suite (17 tests)
-    │   ├── conftest.py             # Test fixtures & mock auth headers
-    │   ├── test_tasks.py           # Tasks API CRUD lifecycle tests
-    │   ├── test_task_service.py    # TaskService business logic tests
-    │   ├── test_integrations.py    # Google Docs tables & rate-limiting tests
-    │   ├── test_ai_service.py      # Weekly & Monthly AI summary tests
-    │   ├── test_security.py        # AES-256 encryption roundtrip tests
-    │   └── test_logger.py          # Loguru rotation and isolation tests
+    │   ├── main.py                 # FastAPI app, CORS, lifespan (DB + scheduler)
+    │   ├── core/                   # config, db, security (Clerk JWT, AES), logger, timezones, constants
+    │   ├── models/                 # Beanie documents: task, integration, mcp, ai_usage
+    │   ├── schemas/                # Request/response shapes: task, sync, ai, mcp
+    │   ├── api/
+    │   │   ├── oauth_discovery.py  # OAuth discovery endpoints required by the MCP spec
+    │   │   └── v1/                 # tasks, integrations, ai, mcp routes
+    │   ├── services/
+    │   │   ├── tasks.py            # Task CRUD, filtering, realtime sync hook
+    │   │   ├── scheduler.py        # Scheduled Docs syncs and nightly summary refresh
+    │   │   ├── mcp_auth.py         # MCP authorization codes and tokens
+    │   │   ├── ai/
+    │   │   │   ├── summarizer.py   # Gemini weekly/monthly summaries with a deterministic fallback
+    │   │   │   ├── prompts.py      # Summary instructions
+    │   │   │   └── quota.py        # Free AI preview daily limit
+    │   │   └── docs/               # Google Docs integration
+    │   │       ├── oauth.py        # Google sign-in, tokens, target doc
+    │   │       ├── renderer.py     # Document layout: daily table, summaries, dossiers
+    │   │       ├── sync.py         # Full sync, manual sync limits, failure recording
+    │   │       ├── realtime.py     # Background syncs after task changes
+    │   │       ├── summaries.py    # Summary cache, status, stale refresh
+    │   │       └── periods.py      # Which tasks a summary covers; fingerprints
+    │   └── mcp/                    # FastMCP server: tools, formatting, auth middleware, transport
+    ├── tests/                      # Pytest suite (mongomock, no network)
+    ├── Dockerfile                  # API + MCP server image
     ├── .env.example                # Backend environment template
-    ├── requirements.txt
-    └── pyproject.toml
+    ├── pyproject.toml              # Dependencies (uv); dev tools in the `dev` group
+    └── uv.lock
 ```
 
 ---
@@ -265,25 +256,20 @@ TaskDocs/
 
 ### 2. Backend Setup
 
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`).
+
 ```bash
 cd backend
 
-# Create and activate virtual environment
-python -m venv .venv
-# On Windows (PowerShell):
-.\.venv\Scripts\activate
-# On macOS / Linux:
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (creates .venv, includes dev tools)
+uv sync
 
 # Configure environment variables
 cp .env.example .env
 # Edit .env with your MongoDB, Clerk, and Google OAuth credentials
 
 # Start development server
-uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 - **Swagger Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -291,9 +277,9 @@ uvicorn app.main:app --reload --port 8000
 
 #### Running Backend Tests
 ```bash
-pytest -v
+uv run pytest -q
+uv run ruff check app tests
 ```
-*(All 17 integration and unit tests should pass cleanly).*
 
 ---
 

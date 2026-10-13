@@ -17,7 +17,7 @@ from app.schemas.sync import (
     SyncDocsResponse,
     TargetDocUpdateRequest,
 )
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
 
 router = APIRouter(prefix="/integrations/google", tags=["Integrations"])
 
@@ -54,7 +54,7 @@ async def get_google_auth_url(
     Returns the Google OAuth 2.0 consent URL for connecting Google Docs.
     """
     auth_state = state or current_user.id
-    url = GoogleDocsService.build_auth_url(state=auth_state)
+    url = docs.oauth.build_auth_url(state=auth_state)
     return GoogleAuthUrlResponse(auth_url=url)
 
 
@@ -67,7 +67,7 @@ async def handle_google_callback(
     Exchanges OAuth code for access and refresh tokens, encrypted at rest.
     """
     try:
-        integration = await GoogleDocsService.exchange_code_for_tokens(
+        integration = await docs.oauth.exchange_code_for_tokens(
             user_id=current_user.id,
             code=payload.code,
             code_verifier=payload.code_verifier,
@@ -125,7 +125,7 @@ async def update_target_doc(
     """
     Sets the target Google Doc ID or URL to be used for automated sprint syncs.
     """
-    integration = await GoogleDocsService.set_target_doc(
+    integration = await docs.oauth.set_target_doc(
         user_id=current_user.id, target_doc_id=payload.target_doc_id
     )
     if not integration:
@@ -157,7 +157,7 @@ async def create_google_doc(
     """
     try:
         title = payload.title if payload else None
-        res = await GoogleDocsService.create_ledger_document(
+        res = await docs.oauth.create_ledger_document(
             user_id=current_user.id, title=title
         )
         return CreateDocResponse(
@@ -229,7 +229,7 @@ async def get_summary_status(
     Whether this week's summary and this month's dossier exist, and whether tasks were
     added or removed since they were written (stale ones are rewritten nightly).
     """
-    result = await GoogleDocsService.get_summary_status(current_user.id)
+    result = await docs.summaries.get_summary_status(current_user.id)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -248,7 +248,7 @@ async def sync_docs(
     Summary syncs are limited to 2 per weekly and monthly cycle; table-only syncs are unlimited.
     """
     try:
-        result = await GoogleDocsService.sync_sprint_to_doc(
+        result = await docs.sync.sync_sprint_to_doc(
             user_id=current_user.id,
             task_ids=payload.task_ids,
             cadence_type=payload.cadence_type,
@@ -279,5 +279,5 @@ async def disconnect_google(
     """
     Disconnects Google Docs integration and deletes encrypted tokens.
     """
-    await GoogleDocsService.disconnect(user_id=current_user.id)
+    await docs.oauth.disconnect(user_id=current_user.id)
     return None

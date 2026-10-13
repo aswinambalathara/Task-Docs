@@ -7,8 +7,8 @@ import pytest
 from app.core.security import encrypt_token
 from app.models.integration import GoogleTokens, Integration, SyncCadence
 from app.models.task import Task
-from app.services.ai_service import AIService
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
+from app.services.ai.summarizer import AIService
 
 
 @pytest.mark.asyncio
@@ -22,13 +22,13 @@ async def test_realtime_sync_coalesces_rapid_changes():
         await release.wait()
         return True
 
-    with patch.object(GoogleDocsService, "sync_task_realtime", side_effect=fake_sync):
-        GoogleDocsService.schedule_realtime_sync("user_realtime_test")
+    with patch.object(docs.realtime, "sync_task_realtime", side_effect=fake_sync):
+        docs.realtime.schedule_realtime_sync("user_realtime_test")
         await asyncio.sleep(0)  # first sync is now running
         for _ in range(4):
-            GoogleDocsService.schedule_realtime_sync("user_realtime_test")
+            docs.realtime.schedule_realtime_sync("user_realtime_test")
         release.set()
-        while "user_realtime_test" in GoogleDocsService._realtime_running:
+        while "user_realtime_test" in docs.realtime._realtime_running:
             await asyncio.sleep(0)
 
     # First run + exactly one follow-up for the four changes made while it was running
@@ -47,7 +47,7 @@ async def test_client_cannot_bypass_manual_sync_limit(client):
         cadence=SyncCadence(manual_syncs_this_week=2, manual_syncs_this_month=2),
     ).insert()
 
-    with patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())):
+    with patch.object(docs.oauth, "get_credentials", AsyncMock(return_value=object())):
         resp = await client.post(
             "/api/v1/integrations/google/sync",
             headers={"Authorization": f"Bearer {user_id}"},
@@ -81,16 +81,16 @@ async def test_sync_summaries_use_target_period_or_selected_tasks():
         return "summary", "deterministic_fallback"
 
     with (
-        patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())),
-        patch("app.services.google_docs.build", return_value=object()),
-        patch.object(GoogleDocsService, "render_structured_ledger_document"),
+        patch.object(docs.oauth, "get_credentials", AsyncMock(return_value=object())),
+        patch("app.services.docs.renderer.build", return_value=object()),
+        patch.object(docs.renderer, "render_structured_ledger_document"),
         patch.object(AIService, "generate_summary", side_effect=fake_summary),
     ):
-        await GoogleDocsService.sync_sprint_to_doc(user_id=user_id, force=True)
+        await docs.sync.sync_sprint_to_doc(user_id=user_id, force=True)
         assert seen == [("weekly", ["This week work"]), ("monthly", ["This week work"])]
 
         seen.clear()
-        await GoogleDocsService.sync_sprint_to_doc(
+        await docs.sync.sync_sprint_to_doc(
             user_id=user_id, task_ids=[str(old.id)], force=True
         )
         assert seen == [("weekly", ["Last year work"]), ("monthly", ["Last year work"])]

@@ -15,10 +15,10 @@ def _schedule_realtime_sync_if_done(user_id: str, task: Task) -> None:
     """
     if task.status != "done":
         return
-    from app.services.google_docs import GoogleDocsService
+    from app.services import docs
 
     try:
-        GoogleDocsService.schedule_realtime_sync(user_id)
+        docs.realtime.schedule_realtime_sync(user_id)
     except Exception as exc:
         logger.warning(f"Could not schedule realtime docs sync for user {user_id}: {exc}")
 

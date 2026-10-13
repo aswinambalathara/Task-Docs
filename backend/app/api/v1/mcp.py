@@ -22,7 +22,7 @@ from app.schemas.mcp import (
     TokenRequest,
     TokenResponse,
 )
-from app.services.mcp_service import MCPService
+from app.services.mcp_auth import MCPService
 
 router = APIRouter()
 optional_bearer_scheme = HTTPBearer(auto_error=False)

@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.config import settings
 from app.core.security import AuthenticatedUser, get_current_user
 from app.schemas.ai import PreviewQuotaResponse, SummarizeRequest, SummarizeResponse
-from app.services.ai_quota import AIPreviewQuota
-from app.services.ai_service import AIService
-from app.services.google_docs import GoogleDocsService
-from app.services.summary_periods import fingerprint
-from app.services.task_service import TaskService
+from app.services import docs
+from app.services.ai.quota import AIPreviewQuota
+from app.services.ai.summarizer import AIService
+from app.services.docs.periods import fingerprint
+from app.services.tasks import TaskService
 
 router = APIRouter(prefix="/ai", tags=["AI Summarization"])
 
@@ -42,7 +42,7 @@ async def summarize_tasks(
         )
     else:
         # The same tasks a summary sync would write about, so the preview can be synced as is
-        tasks = await GoogleDocsService.get_period_tasks(current_user.id, payload.mode)
+        tasks = await docs.summaries.get_period_tasks(current_user.id, payload.mode)
 
     if not tasks:
         period = "month" if payload.mode == "monthly" else "week"

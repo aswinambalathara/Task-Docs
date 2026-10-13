@@ -8,7 +8,7 @@ from app.core.security import encrypt_token
 from app.models.integration import GoogleTokens, Integration, SyncCadence
 from app.models.task import Task
 from app.schemas.sync import TargetDocUpdateRequest
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
 
 
 def test_target_doc_id_extraction():
@@ -36,7 +36,7 @@ def test_build_daily_contribution_log_table():
             requested_by="Oliver",
         )
     ]
-    table = GoogleDocsService.build_daily_contribution_log_table(tasks)
+    table = docs.renderer.build_daily_contribution_log_table(tasks)
 
     assert "DAILY CONTRIBUTION LOG" in table
     assert (
@@ -64,34 +64,34 @@ def test_rate_limit_enforcement():
     )
 
     # First manual run
-    rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration)
+    rem_w, rem_m = docs.sync.check_and_update_rate_limit(integration)
     assert rem_w == 1
     assert rem_m == 1
 
     # Second manual run
-    rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration)
+    rem_w, rem_m = docs.sync.check_and_update_rate_limit(integration)
     assert rem_w == 0
     assert rem_m == 0
 
     # Third manual run should be blocked for weekly summaries
     with pytest.raises(ValueError, match="Weekly manual sync limit reached"):
-        GoogleDocsService.check_and_update_rate_limit(integration, cadence_type="weekly_summary")
+        docs.sync.check_and_update_rate_limit(integration, cadence_type="weekly_summary")
 
     # But daily_table sync is not rate-limited
-    rem_w_daily, rem_m_daily = GoogleDocsService.check_and_update_rate_limit(
+    rem_w_daily, rem_m_daily = docs.sync.check_and_update_rate_limit(
         integration, cadence_type="daily_table"
     )
     assert rem_w_daily == 0
     assert rem_m_daily == 0
 
     # And force=True bypasses rate limiting for automated cron jobs
-    rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration, force=True)
+    rem_w, rem_m = docs.sync.check_and_update_rate_limit(integration, force=True)
     assert rem_w == 0
 
     # Ensure offset-naive datetimes from MongoDB BSON do not raise TypeError
     integration.cadence.week_cycle_started_at = datetime.now()  # Naive (no tzinfo)
     integration.cadence.month_cycle_started_at = datetime.now()  # Naive (no tzinfo)
-    rem_w, rem_m = GoogleDocsService.check_and_update_rate_limit(integration, force=True)
+    rem_w, rem_m = docs.sync.check_and_update_rate_limit(integration, force=True)
     assert rem_w == 0
 
 
@@ -144,9 +144,7 @@ async def test_integration_flow_with_cadence(client: AsyncClient, user_a_headers
     assert data["remaining_manual_syncs_month"] == 2
 
     # Update target doc
-    with patch.object(
-        GoogleDocsService,
-        "get_target_doc_info",
+    with patch.object(docs.oauth, "get_target_doc_info",
         return_value={"title": "Updated Sprint Doc", "id": "new_doc_456"},
     ):
         update_resp = await client.post(
@@ -169,9 +167,7 @@ async def test_integration_flow_with_cadence(client: AsyncClient, user_a_headers
     assert cadence_data["weekly_day"] == "Friday"
 
     # Create new Google Doc via API
-    with patch.object(
-        GoogleDocsService,
-        "create_ledger_document",
+    with patch.object(docs.oauth, "create_ledger_document",
         return_value={
             "doc_id": "auto_created_doc_789",
             "title": "Tethr — Developer Contribution Ledger",
@@ -213,7 +209,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Before preferred day (Thursday Jan 8) -> should NOT render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_friday,
             cadence_type="daily_table",
@@ -224,7 +220,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # On preferred day (Friday Jan 9) -> SHOULD render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_friday,
             cadence_type="daily_table",
@@ -235,7 +231,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # After preferred day (Saturday Jan 10) -> SHOULD render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_friday,
             cadence_type="daily_table",
@@ -246,7 +242,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Completed past week (e.g. today is Jan 15) -> SHOULD render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_friday,
             cadence_type="daily_table",
@@ -257,7 +253,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Future week (today is Jan 2) -> should NOT render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_friday,
             cadence_type="daily_table",
@@ -270,7 +266,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
     cadence_disabled = SyncCadence(weekly_enabled=False, weekly_day="Friday")
     # Even on preferred day or after week ended, automated daily sync will NOT render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_disabled,
             cadence_type="daily_table",
@@ -280,7 +276,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
     )
     # But manual trigger on target week SHOULD render
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_disabled,
             cadence_type="weekly_summary",
@@ -291,7 +287,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
     )
     # And cached summary SHOULD be preserved
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week,
             cadence=cadence_disabled,
             cadence_type="daily_table",
@@ -310,7 +306,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
     cadence_sunday = SyncCadence(weekly_enabled=True, weekly_day="Sunday")
     # Sunday doesn't exist in Jan 26-Jan 31 (Sunday is Feb 1), so falls back to week end_date (Jan 31)
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week_short,
             cadence=cadence_sunday,
             cadence_type="daily_table",
@@ -319,7 +315,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
         is False
     )
     assert (
-        GoogleDocsService.should_render_weekly_summary(
+        docs.renderer.should_render_weekly_summary(
             week=week_short,
             cadence=cadence_sunday,
             cadence_type="daily_table",
@@ -333,7 +329,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Mid-month (Jan 15, 2026) -> should NOT render monthly summary
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_enabled,
@@ -345,7 +341,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # End of month (Jan 31, 2026) -> SHOULD render monthly summary
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_enabled,
@@ -357,7 +353,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Past completed month (e.g. evaluating Jan 2026 when today is Feb 10, 2026) -> SHOULD render
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_enabled,
@@ -369,7 +365,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Future month (e.g. evaluating March 2026 when today is Jan 15, 2026) -> should NOT render
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=3,
             cadence=cadence_month_enabled,
@@ -383,7 +379,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
     cadence_month_disabled = SyncCadence(monthly_enabled=False)
     # Automated daily sync at end of month -> should NOT render
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_disabled,
@@ -395,7 +391,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Manual trigger for target month -> SHOULD render
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_disabled,
@@ -408,7 +404,7 @@ def test_weekly_and_monthly_summary_scheduling_edge_cases():
 
     # Cached monthly summary -> SHOULD be preserved
     assert (
-        GoogleDocsService.should_render_monthly_summary(
+        docs.renderer.should_render_monthly_summary(
             year=2026,
             month=1,
             cadence=cadence_month_disabled,

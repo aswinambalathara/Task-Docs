@@ -11,9 +11,9 @@ from app.core.security import encrypt_token
 from app.mcp.server import current_mcp_user_var, get_tasks, sync_docs
 from app.models.integration import GoogleTokens, Integration, SyncCadence
 from app.models.task import Task
-from app.services.ai_service import AIService
-from app.services.auto_sync import find_due_jobs, run_due_jobs
-from app.services.google_docs import GoogleDocsService
+from app.services import docs
+from app.services.ai.summarizer import AIService
+from app.services.scheduler import find_due_jobs, run_due_jobs
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -38,9 +38,9 @@ def _fake_google(render_error: Exception | None = None):
 
     render = MagicMock(side_effect=render_error)
     with (
-        patch.object(GoogleDocsService, "get_credentials", AsyncMock(return_value=object())),
-        patch("app.services.google_docs.build", return_value=object()),
-        patch.object(GoogleDocsService, "render_structured_ledger_document", render),
+        patch.object(docs.oauth, "get_credentials", AsyncMock(return_value=object())),
+        patch("app.services.docs.renderer.build", return_value=object()),
+        patch.object(docs.renderer, "render_structured_ledger_document", render),
         patch.object(AIService, "generate_summary", side_effect=fake_summary),
     ):
         yield render
@@ -63,10 +63,10 @@ def _http_error(status: int) -> HttpError:
 
 
 def test_error_classification():
-    assert GoogleDocsService.is_retryable_error(ValueError("expired credentials")) is False
-    assert GoogleDocsService.is_retryable_error(_http_error(403)) is False
-    assert GoogleDocsService.is_retryable_error(_http_error(503)) is True
-    assert GoogleDocsService.is_retryable_error(TimeoutError()) is True
+    assert docs.sync.is_retryable_error(ValueError("expired credentials")) is False
+    assert docs.sync.is_retryable_error(_http_error(403)) is False
+    assert docs.sync.is_retryable_error(_http_error(503)) is True
+    assert docs.sync.is_retryable_error(TimeoutError()) is True
 
 
 @pytest.mark.asyncio
@@ -76,7 +76,7 @@ async def test_failed_realtime_sync_is_recorded_retried_and_cleared():
     await Task(user_id=user_id, title="Done task", status="done").insert()
 
     with _fake_google(render_error=_http_error(503)):
-        assert await GoogleDocsService.sync_task_realtime(user_id) is False
+        assert await docs.realtime.sync_task_realtime(user_id) is False
 
     stored = await Integration.get(integration.id)
     assert stored.cadence.table_sync_pending is True
@@ -90,8 +90,8 @@ async def test_failed_realtime_sync_is_recorded_retried_and_cleared():
     with _fake_google() as render:
         await run_due_jobs(datetime(2026, 10, 12, 10, 0, tzinfo=UTC))
     # The tick covers every user in the shared test database; count only this one's renders
-    docs = [c.kwargs["document_id"] for c in render.call_args_list]
-    assert docs.count(f"doc_{user_id}") == 1
+    doc_ids = [c.kwargs["document_id"] for c in render.call_args_list]
+    assert doc_ids.count(f"doc_{user_id}") == 1
 
     stored = await Integration.get(integration.id)
     assert stored.cadence.table_sync_pending is False
@@ -108,7 +108,7 @@ async def test_failed_retry_backs_off_and_keeps_error():
     now = datetime(2026, 10, 12, 10, 0, tzinfo=UTC)
 
     failing = AsyncMock(side_effect=ValueError("Google authentication credentials are invalid"))
-    with patch.object(GoogleDocsService, "sync_sprint_to_doc", failing):
+    with patch.object(docs.sync, "sync_sprint_to_doc", failing):
         await run_due_jobs(now)
         await run_due_jobs(now + timedelta(minutes=5))  # inside the back-off window
     assert [c.kwargs["user_id"] for c in failing.call_args_list].count(user_id) == 1
