@@ -1,0 +1,54 @@
+# Tethr on the production VM. CI sends this file to /opt/apps/tethr/compose.yaml on every deploy;
+# deploy.sh sets TAG (the image tag, sha-<commit>) in /opt/apps/tethr/.env.
+#
+# api.env and web.env live next to it on the server only (root:deploy, mode 640), never in Git.
+# Ports bind to 127.0.0.1: Docker's own iptables rules bypass UFW, so anything published on
+# 0.0.0.0 would be reachable from the internet. Host Nginx is the only public entry point.
+name: tethr
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    image: ghcr.io/aswinambalathara/tethr-api:${TAG:?TAG is set by deploy.sh}
+    env_file: api.env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - logs:/app/logs
+    mem_limit: 768m
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/aswinambalathara/tethr-web:${TAG:?TAG is set by deploy.sh}
+    env_file: web.env
+    environment:
+      # The /api/v1 proxy route calls the API over the compose network
+      BACKEND_URL: http://api:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    # favicon.ico skips the Clerk middleware, so this only checks that the Next.js server answers
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/favicon.ico').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    mem_limit: 512m
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  logs:
