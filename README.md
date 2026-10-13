@@ -198,6 +198,7 @@ TaskDocs/
 ├── documentation structure plan.md # Original design vision for career documentation
 ├── typography-system.md            # Typography scale & hierarchy guidelines
 ├── README.md                       # Main repository documentation
+├── docker-compose.yml              # Web app + API (docker compose --env-file frontend/.env.local up --build)
 │
 ├── frontend/                       # Next.js 16 Client Application
 │   ├── src/
@@ -205,6 +206,7 @@ TaskDocs/
 │   │   ├── components/             # Reusable UI, Kanban, and Daily Table components
 │   │   ├── store/                  # Zustand client state
 │   │   └── lib/                    # API client & utilities
+│   ├── Dockerfile                  # Standalone Next.js image
 │   ├── .env.example                # Frontend environment template
 │   ├── package.json
 │   └── tsconfig.json
@@ -274,6 +276,14 @@ uv run uvicorn app.main:app --reload --port 8000
 
 - **Swagger Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Health Check:** [http://localhost:8000/health](http://localhost:8000/health)
+
+#### Running with Docker
+From the repository root, with `backend/.env` (MONGODB_URL = your Atlas URI) and `frontend/.env.local` filled in:
+```bash
+docker compose --env-file frontend/.env.local up --build
+```
+- Web app: http://localhost:3000 · API + MCP server: http://localhost:8000
+- `--env-file` passes the frontend's `NEXT_PUBLIC_*` values as build arguments; they are baked into the browser bundle, so changing them needs `--build`.
 
 #### Running Backend Tests
 ```bash

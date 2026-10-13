@@ -3,6 +3,8 @@ import type { NextConfig } from "next"
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000"
 
 const nextConfig: NextConfig = {
+  // Self-contained server for the Docker image (node .next/standalone/server.js)
+  output: "standalone",
   async rewrites() {
     return [
       // Direct streaming socket rewrite for FastMCP SSE connection

@@ -1,0 +1,43 @@
+# Tethr: web app on :3000, API + MCP server on :8000 (MCP is mounted on the API at /sse and /mcp).
+# MongoDB is Atlas, set by MONGODB_URL in backend/.env.
+#
+#   docker compose --env-file frontend/.env.local up --build
+#
+# --env-file supplies the frontend's NEXT_PUBLIC_* build arguments (they are baked into the
+# browser bundle); each container reads its own runtime settings from env_file.
+services:
+  api:
+    build: ./backend
+    env_file: backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - logs:/app/logs
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Server-side rewrites (/sse, /messages, /mcp) reach the API over the compose network
+        BACKEND_URL: http://api:8000
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
+        NEXT_PUBLIC_MCP_SSE_URL: ${NEXT_PUBLIC_MCP_SSE_URL:-http://localhost:8000/sse}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?set it in frontend/.env.local and pass --env-file}
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL:-/sign-in}
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL:-/sign-up}
+        NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL:-/}
+        NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL:-/}
+    env_file: frontend/.env.local
+    environment:
+      # The /api/v1 proxy route calls the API over the compose network
+      BACKEND_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  logs:
