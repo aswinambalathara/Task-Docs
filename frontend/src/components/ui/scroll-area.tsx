@@ -8,10 +8,13 @@ interface ScrollAreaProps extends React.HTMLAttributes<HTMLDivElement> {
 const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(
   ({ className, children, viewportClassName, ...props }, ref) => {
     return (
-      <div ref={ref} className={cn("relative overflow-hidden", className)} {...props}>
+      // Flex column + min-h-0: the viewport is bounded by this element's height or max-height.
+      // With only `h-full`, a max-height parent left the viewport at its content height, so
+      // overflow was clipped instead of scrolled.
+      <div ref={ref} className={cn("relative flex min-h-0 flex-col overflow-hidden", className)} {...props}>
         <div
           className={cn(
-            "h-full w-full overflow-x-hidden overflow-y-auto scroll-smooth",
+            "min-h-0 w-full flex-1 overflow-x-hidden overflow-y-auto scroll-smooth",
             "scrollbar-thin",
             "[scrollbar-color:var(--border)_transparent]",
             "[&::-webkit-scrollbar]:w-1.5",

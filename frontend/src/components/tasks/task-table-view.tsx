@@ -16,22 +16,26 @@ import {
   Eye,
 } from "lucide-react"
 
-import { useTaskStore, Task, TaskStatus } from "@/store/useTaskStore"
+import { useTaskStore, Task } from "@/store/useTaskStore"
 import { motion, AnimatePresence } from "framer-motion"
 import { TaskDialog } from "@/components/task-dialog"
 import { TaskDetailDialog } from "@/components/task-detail-dialog"
+import { DeleteTaskDialog } from "@/components/delete-task-dialog"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { Button } from "@/components/ui/button"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { PriorityIndicator } from "@/components/ui/priority-indicator"
 import { TypeBadge } from "@/components/ui/type-badge"
 import { CareerStar } from "@/components/ui/career-star"
 import { cn } from "@/lib/utils"
+import { STATUS_OPTIONS } from "@/lib/task-options"
 
 export function TaskTableView({ tasks }: { tasks: Task[] }) {
-  const { toggleCareerHighlight, updateTaskStatus, deleteTask, addContribution } = useTaskStore()
+  const { toggleCareerHighlight, updateTaskStatus, addContribution } = useTaskStore()
   const [expandedRows, setExpandedRows] = React.useState<Record<string, boolean>>({})
   const [editingTask, setEditingTask] = React.useState<Task | null>(null)
   const [viewingTask, setViewingTask] = React.useState<Task | null>(null)
+  const [deletingTask, setDeletingTask] = React.useState<Task | null>(null)
   const [newNoteTaskId, setNewNoteTaskId] = React.useState<string | null>(null)
   const [newNoteText, setNewNoteText] = React.useState("")
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
@@ -189,18 +193,14 @@ export function TaskTableView({ tasks }: { tasks: Task[] }) {
 
                       {/* Inline Status Dropdown */}
                       <td className="py-3 px-3 align-top">
-                        <select
+                        <SimpleSelect
                           value={task.status}
-                          onChange={(e) => updateTaskStatus(task.id, e.target.value as TaskStatus)}
+                          onValueChange={(status) => updateTaskStatus(task.id, status)}
+                          options={STATUS_OPTIONS}
                           aria-label="Update task status"
-                          className="bg-card border border-input rounded-md px-2 py-1 text-xs font-medium text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-primary outline-none cursor-pointer"
-                        >
-                          <option value="todo">To do</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="done">Done</option>
-                          <option value="blocked">Blocked</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
+                          size="sm"
+                          className="w-32 text-xs"
+                        />
                       </td>
 
                       {/* Outcome & Evidence */}
@@ -268,7 +268,7 @@ export function TaskTableView({ tasks }: { tasks: Task[] }) {
                           </button>
                           <button
                             type="button"
-                            onClick={() => deleteTask(task.id)}
+                            onClick={() => setDeletingTask(task)}
                             aria-label={`Delete task ${task.title}`}
                             title="Delete task"
                             className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -372,6 +372,12 @@ export function TaskTableView({ tasks }: { tasks: Task[] }) {
           pageSizeOptions={[10, 25, 50]}
         />
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteTaskDialog
+        task={deletingTask}
+        onOpenChange={(open) => !open && setDeletingTask(null)}
+      />
 
       {/* Task Detail Review Modal */}
       {viewingTask && (

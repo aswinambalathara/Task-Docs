@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { authFetch } from "@/lib/api"
 import { useIntegrationStore } from "./useIntegrationStore"
 
 export type TaskStatus = "todo" | "in_progress" | "done" | "blocked" | "cancelled"
@@ -82,17 +83,12 @@ interface TaskState {
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>
   toggleCareerHighlight: (id: string) => Promise<void>
-  deleteTask: (id: string) => Promise<void>
+  deleteTask: (id: string) => Promise<{ success: boolean; error?: string }>
   addContribution: (id: string, note: string) => Promise<void>
   setFilters: (filters: Partial<TaskFilters>) => void
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
-
-// Request headers for API proxy calls (Next.js server proxy automatically injects live Clerk session token)
-export function getAuthHeader(): Record<string, string> {
-  return {}
-}
 
 interface BackendTask {
   id: string
@@ -176,9 +172,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       if (active.highlight !== undefined) params.append("highlight", String(active.highlight))
       if (active.search && active.search.trim()) params.append("search", active.search.trim())
 
-      const res = await fetch(`${API_BASE}/tasks?${params.toString()}`, {
+      const res = await authFetch(`${API_BASE}/tasks?${params.toString()}`, {
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
       })
@@ -233,10 +228,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }))
 
     try {
-      const res = await fetch(`${API_BASE}/tasks`, {
+      const res = await authFetch(`${API_BASE}/tasks`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -292,10 +286,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       if (updates.isCareerHighlight !== undefined) payload.is_career_highlight = updates.isCareerHighlight
       if (updates.tags !== undefined) payload.tags = updates.tags
 
-      const res = await fetch(`${API_BASE}/tasks/${id}`, {
+      const res = await authFetch(`${API_BASE}/tasks/${id}`, {
         method: "PATCH",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
@@ -335,6 +328,18 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const target = get().tasks.find((t) => t.id === id)
     const wasSynced = target?.syncedToDocs === true
 
+    // Delete on the server first, so a failed request (offline, expired session) never makes
+    // the task disappear here only to come back on the next reload
+    try {
+      const res = await authFetch(`${API_BASE}/tasks/${id}`, { method: "DELETE" })
+      if (!res.ok && res.status !== 404) {
+        const err = await res.json().catch(() => ({}))
+        return { success: false, error: err.detail || "Couldn't delete the task" }
+      }
+    } catch {
+      return { success: false, error: "Couldn't reach the server" }
+    }
+
     set((state) => ({
       tasks: state.tasks.filter((task) => task.id !== id),
     }))
@@ -344,23 +349,14 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     } else {
       useIntegrationStore.getState().cancelAutoSyncIfClean()
     }
-
-    try {
-      await fetch(`${API_BASE}/tasks/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeader(),
-      })
-    } catch {
-      // Offline fallback
-    }
+    return { success: true }
   },
 
   addContribution: async (id, note) => {
     try {
-      const res = await fetch(`${API_BASE}/tasks/${id}/contributions`, {
+      const res = await authFetch(`${API_BASE}/tasks/${id}/contributions`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ note }),

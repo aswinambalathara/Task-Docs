@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000"
 
@@ -33,16 +32,9 @@ async function handleProxy(
       }
     })
 
-    // If user is signed in to Clerk, attach their live RS256 JWT session token
-    try {
-      const { getToken } = await auth()
-      const token = await getToken()
-      if (token) {
-        forwardedHeaders.set("Authorization", `Bearer ${token}`)
-      }
-    } catch {
-      // In dev mode without Clerk cookies, existing Authorization header is preserved
-    }
+    // Authorization comes from the browser (lib/api.ts authFetch) and is verified by the
+    // backend. The proxy does not read the Clerk cookie: right after a page reload its
+    // short-lived token can be expired, and only the browser SDK can refresh it.
 
     // Forward request body for non-GET/HEAD methods
     const hasBody = !["GET", "HEAD"].includes(request.method)

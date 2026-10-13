@@ -21,19 +21,17 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { StatusBadge } from "@/components/ui/status-badge"
 import { TypeBadge } from "@/components/ui/type-badge"
 import { PriorityIndicator } from "@/components/ui/priority-indicator"
 import { CareerStar } from "@/components/ui/career-star"
-import { Task, TaskStatus, useTaskStore } from "@/store/useTaskStore"
+import { Task, useTaskStore } from "@/store/useTaskStore"
 import { useIntegrationStore } from "@/store/useIntegrationStore"
-import { cn } from "@/lib/utils"
+import { STATUS_OPTIONS } from "@/lib/task-options"
 
 interface TaskDetailDialogProps {
   task: Task | null
@@ -72,7 +70,8 @@ export function TaskDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-card text-card-foreground border border-border rounded-xl shadow-xl flex max-h-[90vh] w-[calc(100vw-2rem)] sm:max-w-2xl flex-col gap-0 overflow-hidden p-0">
         {/* Header */}
-        <div className="border-b border-border px-6 py-4 shrink-0 bg-muted/20">
+        {/* pr-14 keeps the star clear of the dialog's close button (top-right corner) */}
+        <div className="border-b border-border py-4 pl-6 pr-14 shrink-0 bg-muted/20">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -110,17 +109,14 @@ export function TaskDetailDialog({
             <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border border-border bg-muted/30">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground">Status:</span>
-                <select
+                <SimpleSelect
                   value={task.status}
-                  onChange={(e) => updateTaskStatus(task.id, e.target.value as TaskStatus)}
-                  className="bg-card border border-input rounded-md px-2.5 py-1 text-xs font-medium text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-primary outline-none cursor-pointer"
-                >
-                  <option value="todo">To do</option>
-                  <option value="in_progress">In progress</option>
-                  <option value="done">Done</option>
-                  <option value="blocked">Blocked</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
+                  onValueChange={(status) => updateTaskStatus(task.id, status)}
+                  options={STATUS_OPTIONS}
+                  aria-label="Task status"
+                  size="sm"
+                  className="w-36 text-xs"
+                />
               </div>
 
               <div className="flex items-center gap-2">

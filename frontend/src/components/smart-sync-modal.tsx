@@ -32,6 +32,40 @@ interface SmartSyncModalProps {
   trigger?: React.ReactNode
 }
 
+type Scope = "daily_table" | "weekly" | "monthly" | "all"
+type SummaryKind = "weekly" | "monthly"
+
+interface SummaryPreview {
+  text: string
+  source: string
+  // Identifies the tasks the text was written about; sent with the sync so the backend
+  // can tell when later task changes make the synced summary out of date
+  fingerprint?: string
+  taskCount?: number
+}
+
+// Which AI summaries each scope writes to the document
+const SCOPE_KINDS: Record<Scope, SummaryKind[]> = {
+  daily_table: [],
+  weekly: ["weekly"],
+  monthly: ["monthly"],
+  all: ["weekly", "monthly"],
+}
+
+const SCOPE_OPTIONS: { id: Scope; label: string }[] = [
+  { id: "daily_table", label: "Daily Table" },
+  { id: "weekly", label: "Weekly Rollup" },
+  { id: "monthly", label: "Monthly Appraisal" },
+  { id: "all", label: "Weekly + Monthly" },
+]
+
+const CADENCE_TYPES: Record<Scope, "daily_table" | "weekly_summary" | "monthly_dossier" | "all"> = {
+  daily_table: "daily_table",
+  weekly: "weekly_summary",
+  monthly: "monthly_dossier",
+  all: "all",
+}
+
 function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
   const {
     isConnected,
@@ -46,15 +80,20 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
     syncDocs,
     createGoogleDoc,
     fetchAISummary,
+    aiPreviewsRemaining,
+    aiPreviewLimit,
+    fetchPreviewQuota,
+    summaryStatus,
+    fetchSummaryStatus,
   } = useIntegrationStore()
 
   const { tasks, fetchTasks } = useTaskStore()
 
-  const [scope, setScope] = React.useState<"daily_table" | "all" | "weekly" | "monthly">("daily_table")
+  const [scope, setScope] = React.useState<Scope>("daily_table")
   const [includeContributions, setIncludeContributions] = React.useState(true)
-  const [aiPreview, setAiPreview] = React.useState<string | null>(null)
-  const [aiSource, setAiSource] = React.useState<string | null>(null)
-  const [isLoadingAI, setIsLoadingAI] = React.useState(false)
+  const [previews, setPreviews] = React.useState<Partial<Record<SummaryKind, SummaryPreview>>>({})
+  const [previewTab, setPreviewTab] = React.useState<SummaryKind>("weekly")
+  const [loadingKind, setLoadingKind] = React.useState<SummaryKind | null>(null)
   const [syncSuccessResult, setSyncSuccessResult] = React.useState<{
     docUrl?: string
     syncedCount?: number
@@ -63,27 +102,44 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
 
   React.useEffect(() => {
     fetchStatus()
-  }, [fetchStatus])
+    fetchPreviewQuota()
+    fetchSummaryStatus()
+  }, [fetchStatus, fetchPreviewQuota, fetchSummaryStatus])
+
+  const previewsExhausted = aiPreviewsRemaining === 0
 
   const unsyncedDoneTasks = tasks.filter((t) => t.status === "done" && !t.syncedToDocs)
   const allDoneTasks = tasks.filter((t) => t.status === "done")
   const tasksToSync = unsyncedDoneTasks.length > 0 ? unsyncedDoneTasks : allDoneTasks
 
+  const scopeKinds = SCOPE_KINDS[scope]
+  const activeKind: SummaryKind | null =
+    scopeKinds.length === 0 ? null : scopeKinds.includes(previewTab) ? previewTab : scopeKinds[0]
+  const activePreview = activeKind ? previews[activeKind] : undefined
+  const weekLabel = summaryStatus ? `Week ${summaryStatus.week_num}` : "current week"
+  const kindLabel = (kind: SummaryKind) =>
+    kind === "weekly" ? `${weekLabel} summary` : "This month's dossier"
+
   const handleGenerateAI = async () => {
-    setIsLoadingAI(true)
+    if (!activeKind) return
+    const kind = activeKind
+    setLoadingKind(kind)
     setSyncError(null)
-    const mode = scope === "monthly" ? "monthly" : "weekly"
-    const taskIds = tasksToSync.slice(0, 15).map((t) => t.id)
 
-    const res = await fetchAISummary({
-      taskIds: taskIds.length > 0 ? taskIds : undefined,
-      mode,
-    })
+    // No task IDs: the backend previews exactly the tasks the synced summary will cover
+    const res = await fetchAISummary({ mode: kind })
 
-    setIsLoadingAI(false)
+    setLoadingKind(null)
     if (res.executiveSummary) {
-      setAiPreview(res.executiveSummary)
-      setAiSource(res.source || "deterministic")
+      setPreviews((prev) => ({
+        ...prev,
+        [kind]: {
+          text: res.executiveSummary as string,
+          source: res.source || "deterministic",
+          fingerprint: res.fingerprint,
+          taskCount: res.taskCount,
+        },
+      }))
     } else if (res.error) {
       setSyncError(res.error)
     }
@@ -93,17 +149,16 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
     setSyncError(null)
     setSyncSuccessResult(null)
 
-    const cadenceTypeMap: Record<string, "daily_table" | "weekly_summary" | "monthly_dossier" | "all"> = {
-      daily_table: "daily_table",
-      weekly: "weekly_summary",
-      monthly: "monthly_dossier",
-      all: "all",
-    }
+    // Each previewed text goes to its own summary; without a preview the backend generates it
+    const weekly = scopeKinds.includes("weekly") ? previews.weekly : undefined
+    const monthly = scopeKinds.includes("monthly") ? previews.monthly : undefined
 
     const res = await syncDocs({
-      taskIds: tasksToSync.map((t) => t.id),
-      cadenceType: cadenceTypeMap[scope] || "daily_table",
-      executiveSummary: scope !== "daily_table" ? (aiPreview || undefined) : undefined,
+      cadenceType: CADENCE_TYPES[scope],
+      executiveSummary: weekly?.text,
+      weeklyFingerprint: weekly?.fingerprint,
+      monthlyDossier: monthly?.text,
+      monthlyFingerprint: monthly?.fingerprint,
       includeContributions,
     })
 
@@ -113,20 +168,23 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
         docUrl: data.doc_url,
         syncedCount: data.synced_tasks_count,
       })
-      await fetchTasks()
+      await Promise.all([fetchTasks(), fetchSummaryStatus()])
     } else {
       setSyncError(res.error || "Failed to sync to Google Docs.")
     }
   }
 
-  const isRateLimited =
-    scope === "daily_table"
-      ? false
-      : scope === "weekly"
-      ? remainingManualSyncsWeek <= 0
-      : scope === "monthly"
-      ? remainingManualSyncsMonth <= 0
-      : remainingManualSyncsWeek <= 0 || remainingManualSyncsMonth <= 0
+  const weeklyLimited = scopeKinds.includes("weekly") && remainingManualSyncsWeek <= 0
+  const monthlyLimited = scopeKinds.includes("monthly") && remainingManualSyncsMonth <= 0
+  const isRateLimited = weeklyLimited || monthlyLimited
+  const maxSyncs = cadence.max_manual_syncs_per_cycle || 2
+
+  const scopeHint: Record<Scope, string> = {
+    daily_table: "Rebuilds the daily contribution table. No AI and no sync limits.",
+    weekly: `Writes the ${weekLabel} summary. Uses 1 of your ${maxSyncs} weekly summary syncs.`,
+    monthly: `Writes this month's appraisal dossier. Uses 1 of your ${maxSyncs} monthly syncs.`,
+    all: `Writes the ${weekLabel} summary and this month's dossier. Uses 1 weekly and 1 monthly sync.`,
+  }
 
   const getBudgetStyle = (remaining: number) => {
     if (remaining === 0) return { track: "bg-muted", fill: "bg-destructive", text: "text-destructive" }
@@ -192,9 +250,24 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
           </div>
 
           {isRateLimited && (
-            <div className="bg-muted border border-border rounded-md p-2.5 flex items-center gap-2 text-xs text-muted-foreground mt-2">
-              <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>Next automatic sync: {cadence.weekly_day || "Saturday"}, 00:00 UTC</span>
+            <div className="bg-muted border border-border rounded-md p-2.5 flex items-start gap-2 text-xs text-muted-foreground mt-2">
+              <Clock className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+              <div className="space-y-0.5">
+                {weeklyLimited && (
+                  <p>
+                    Weekly summary limit reached.
+                    {cadence.weekly_enabled &&
+                      ` The next one is written automatically on ${cadence.weekly_day} at 18:00 (${cadence.timezone || "UTC"}).`}
+                  </p>
+                )}
+                {monthlyLimited && (
+                  <p>
+                    Monthly dossier limit reached.
+                    {cadence.monthly_enabled &&
+                      ` The next one is written automatically on the last day of the month at 18:00 (${cadence.timezone || "UTC"}).`}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -285,18 +358,13 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
             )}
           </div>
           <div className="bg-muted rounded-md p-1 grid grid-cols-2 sm:grid-cols-4 gap-1">
-            {[
-              { id: "daily_table", label: "Daily Table" },
-              { id: "weekly", label: "Weekly Rollup" },
-              { id: "monthly", label: "Monthly Appraisal" },
-              { id: "all", label: "Full Sprint" },
-            ].map((opt) => {
+            {SCOPE_OPTIONS.map((opt) => {
               const isSelected = scope === opt.id
               return (
                 <button
                   key={opt.id}
                   type="button"
-                  onClick={() => setScope(opt.id as "daily_table" | "all" | "weekly" | "monthly")}
+                  onClick={() => setScope(opt.id)}
                   className={cn(
                     "rounded-md py-1.5 text-xs font-medium transition-all text-center select-none truncate px-1",
                     isSelected
@@ -309,7 +377,41 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
               )
             })}
           </div>
+          <p className="text-muted-foreground text-xs">{scopeHint[scope]}</p>
         </div>
+
+        {/* Whether the summaries this scope rewrites are still current */}
+        {summaryStatus &&
+          scopeKinds.map((kind) => {
+            const state = summaryStatus[kind]
+            if (!state.generated) return null
+            if (state.stale) {
+              return (
+                <div
+                  key={kind}
+                  className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-700 dark:text-amber-400" />
+                  <p className="text-foreground leading-relaxed">
+                    <span className="font-medium">{kindLabel(kind)} is out of date.</span>{" "}
+                    {state.summarized_task_count !== null
+                      ? `It was written about ${state.summarized_task_count} task(s); ${state.current_task_count} are logged now.`
+                      : `Tasks were added or removed since it was written (${state.current_task_count} logged now).`}{" "}
+                    It is rewritten automatically tonight, or sync now to replace it.
+                  </p>
+                </div>
+              )
+            }
+            return (
+              <div key={kind} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                <span>
+                  {kindLabel(kind)} is up to date ({state.current_task_count} task
+                  {state.current_task_count === 1 ? "" : "s"}). Syncing again replaces it.
+                </span>
+              </div>
+            )
+          })}
 
         {/* AI summary preview (for AI scopes) or Table Info (for Daily Table) */}
         {scope === "daily_table" ? (
@@ -324,57 +426,108 @@ function SmartSyncModalContent({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
-                AI summary preview
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleGenerateAI}
-                disabled={isLoadingAI}
-                className="h-8 gap-1.5 text-xs"
-              >
-                <RefreshCw className={cn("h-3 w-3", isLoadingAI && "animate-spin")} />
-                <span>{isLoadingAI ? "Generating..." : "Generate Preview"}</span>
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
+                  AI preview
+                </span>
+                {scopeKinds.length > 1 && (
+                  <div className="bg-muted rounded-md p-0.5 flex gap-0.5">
+                    {scopeKinds.map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => setPreviewTab(kind)}
+                        className={cn(
+                          "rounded px-2 py-0.5 text-xs font-medium transition-all inline-flex items-center gap-1",
+                          activeKind === kind
+                            ? "bg-card shadow-xs text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {kind === "weekly" ? "Weekly" : "Monthly"}
+                        {previews[kind] && <span className="h-1.5 w-1.5 rounded-full bg-success" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {aiPreviewsRemaining !== null && (
+                  <span
+                    className={cn(
+                      "text-xs",
+                      previewsExhausted ? "text-destructive" : "text-muted-foreground"
+                    )}
+                  >
+                    {aiPreviewsRemaining} of {aiPreviewLimit} previews left today
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateAI}
+                  disabled={loadingKind !== null || previewsExhausted}
+                  className="h-8 gap-1.5 text-xs"
+                >
+                  <RefreshCw className={cn("h-3 w-3", loadingKind !== null && "animate-spin")} />
+                  <span>
+                    {loadingKind !== null
+                      ? "Generating..."
+                      : activePreview
+                      ? "Regenerate"
+                      : "Generate Preview"}
+                  </span>
+                </Button>
+              </div>
             </div>
 
-          {isLoadingAI ? (
-            <div className="space-y-2 rounded-lg border border-border p-3.5 bg-muted/40">
-              <div className="h-3 w-3/4 bg-muted rounded animate-pulse" />
-              <div className="h-3 w-full bg-muted rounded animate-pulse" />
-              <div className="h-3 w-5/6 bg-muted rounded animate-pulse" />
-            </div>
-          ) : aiPreview ? (
-            <div className="rounded-lg border border-border bg-muted/40 p-3.5 space-y-2 text-xs">
-              <div className="flex items-center justify-between border-b border-border pb-1.5">
-                <span className="text-xs font-medium text-foreground">Summary</span>
-                <span
-                  className={cn(
-                    "rounded-md px-2 py-0.5 text-xs font-medium",
-                    aiSource === "gemini"
-                      ? "bg-primary-soft text-primary-soft-foreground"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  {aiSource === "gemini" ? "Gemini" : "Template"}
-                </span>
+            {loadingKind !== null && loadingKind === activeKind ? (
+              <div className="space-y-2 rounded-lg border border-border p-3.5 bg-muted/40">
+                <div className="h-3 w-3/4 bg-muted rounded animate-pulse" />
+                <div className="h-3 w-full bg-muted rounded animate-pulse" />
+                <div className="h-3 w-5/6 bg-muted rounded animate-pulse" />
               </div>
-              <p className="text-foreground leading-relaxed whitespace-pre-line">
-                {aiPreview}
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-border p-4 text-center">
-              <p className="text-muted-foreground text-xs">
-                Click &quot;Generate Preview&quot; to synthesize {tasksToSync.length} task(s) before syncing.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+            ) : activeKind && activePreview ? (
+              <div className="rounded-lg border border-border bg-muted/40 p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between border-b border-border pb-1.5">
+                  <span className="text-xs font-medium text-foreground">
+                    {kindLabel(activeKind)}
+                    {activePreview.taskCount !== undefined &&
+                      ` · ${activePreview.taskCount} task${activePreview.taskCount === 1 ? "" : "s"}`}
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-md px-2 py-0.5 text-xs font-medium",
+                      activePreview.source.startsWith("gemini")
+                        ? "bg-primary-soft text-primary-soft-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {activePreview.source.startsWith("gemini") ? "Gemini" : "Template"}
+                  </span>
+                </div>
+                <p className="text-foreground leading-relaxed whitespace-pre-line">
+                  {activePreview.text}
+                </p>
+              </div>
+            ) : activeKind ? (
+              <div className="rounded-lg border border-dashed border-border p-4 text-center space-y-1">
+                <p className="text-muted-foreground text-xs">
+                  Click &quot;Generate Preview&quot; to draft{" "}
+                  {activeKind === "weekly" ? `the ${weekLabel} summary` : "this month's dossier"}
+                  {summaryStatus &&
+                    ` from ${summaryStatus[activeKind].current_task_count} task(s)`}
+                  .
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Optional: if you sync without a preview, it is generated during the sync.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Include contributions toggle */}
         <div className="flex items-center justify-between rounded-lg border border-border p-3 text-xs bg-card">

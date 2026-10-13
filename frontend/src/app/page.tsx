@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { format } from "date-fns"
 import {
   Clock,
   Search,
@@ -23,7 +22,7 @@ import {
 } from "lucide-react"
 
 import { useTaskStore, TaskStatus } from "@/store/useTaskStore"
-import { useIntegrationStore } from "@/store/useIntegrationStore"
+import { useIntegrationStore, type AutoSyncError } from "@/store/useIntegrationStore"
 import { useUser } from "@clerk/nextjs"
 import Link from "next/link"
 import { TaskDialog } from "@/components/task-dialog"
@@ -31,24 +30,31 @@ import { TaskTableView } from "@/components/tasks/task-table-view"
 import { TaskKanbanView } from "@/components/tasks/task-kanban-view"
 import { TaskGridView } from "@/components/tasks/task-grid-view"
 import { SmartSyncModal } from "@/components/smart-sync-modal"
+import { AnimatedBackground } from "@/components/animated-background"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { StatusBadge } from "@/components/ui/status-badge"
-import { CareerStar } from "@/components/ui/career-star"
 import { cn } from "@/lib/utils"
 
 export default function DashboardPage() {
-  const { tasks, fetchTasks, toggleCareerHighlight } = useTaskStore()
+  const {
+    tasks,
+    fetchTasks,
+    isLoading: isLoadingTasks,
+    error: tasksError,
+  } = useTaskStore()
   const {
     isConnected,
     targetDocId,
     isSyncing,
-    syncDailyTable,
     fetchStatus,
     autoSyncCountdown,
     hasPendingSync,
     flushAutoSync,
+    autoSyncError,
+    cadence,
+    statusLoaded,
+    statusLoadError,
   } = useIntegrationStore()
   const [syncFeedback, setSyncFeedback] = React.useState<{
     type: "success" | "error"
@@ -69,15 +75,33 @@ export default function DashboardPage() {
     }
   }, [fetchTasks, fetchStatus, isSignedIn])
 
+  // A failure of this browser's sync, else one the server recorded for its background syncs
+  // (tasks completed via MCP or the API are synced by the server, not by this page)
+  const syncProblem: AutoSyncError | null =
+    autoSyncError ??
+    (cadence.last_sync_error
+      ? {
+          message: cadence.last_sync_error,
+          retryable: cadence.last_sync_error_retryable ?? true,
+          failedAt: cadence.last_sync_error_at ?? "",
+        }
+      : null)
+
   const handleSyncDailyTable = async () => {
     setSyncFeedback(null)
-    await flushAutoSync()
+    // Failures are shown in the sync banner (they also come from background syncs)
+    if (await flushAutoSync()) {
+      setSyncFeedback({ type: "success", message: "Daily table synced to Google Docs." })
+    }
   }
 
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | "all">("all")
   const [highlightsOnly, setHighlightsOnly] = React.useState(false)
   const [viewMode, setViewMode] = React.useState<"table" | "kanban" | "grid">("table")
+  // The board's columns already split tasks by status, so the status filter is off there
+  const isBoard = viewMode === "kanban"
+  const activeStatus: TaskStatus | "all" = isBoard ? "all" : selectedStatus
 
   // Metrics computation
   const totalTasks = tasks.length
@@ -98,7 +122,7 @@ export default function DashboardPage() {
       (task.outcome && task.outcome.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (task.tags && task.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase())))
 
-    const matchesStatus = selectedStatus === "all" || task.status === selectedStatus
+    const matchesStatus = activeStatus === "all" || task.status === activeStatus
     const matchesHighlights = !highlightsOnly || task.isCareerHighlight
 
     return matchesSearch && matchesStatus && matchesHighlights
@@ -117,6 +141,7 @@ export default function DashboardPage() {
   if (!isSignedIn) {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
+        <AnimatedBackground />
         <div className="w-full max-w-md space-y-6">
           <Card className="border border-border p-6 text-center space-y-6 sm:p-8">
             <div className="flex flex-col items-center space-y-3">
@@ -157,6 +182,7 @@ export default function DashboardPage() {
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <AnimatedBackground />
       {/* 1. Header Banner & Actions */}
       <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
         <div className="space-y-1">
@@ -164,7 +190,17 @@ export default function DashboardPage() {
             <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
               Developer Workspace
             </h1>
-            {!isConnected ? (
+            {statusLoadError && !statusLoaded ? (
+              <button
+                type="button"
+                onClick={() => fetchStatus()}
+                className="hidden items-center gap-1.5 rounded-full bg-destructive/10 border border-destructive/25 px-2.5 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition-colors sm:inline-flex"
+                title="Click to try again"
+              >
+                <AlertCircle className="h-3 w-3" />
+                <span>{statusLoadError} · Retry</span>
+              </button>
+            ) : !statusLoaded ? null : !isConnected ? (
               <Link
                 href="/settings"
                 className="hidden items-center gap-1.5 rounded-full bg-muted border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors sm:inline-flex"
@@ -209,10 +245,13 @@ export default function DashboardPage() {
               disabled={isSyncing}
               className={cn(
                 "gap-2 border-border shadow-xs hover:border-primary/50 text-xs sm:text-sm font-medium transition-all",
-                autoSyncCountdown !== null && "border-primary/60 bg-primary/5"
+                autoSyncCountdown !== null && "border-primary/60 bg-primary/5",
+                syncProblem && !isSyncing && "border-destructive/50 bg-destructive/5"
               )}
               title={
-                autoSyncCountdown !== null
+                syncProblem
+                  ? `Last sync failed: ${syncProblem.message} — click to retry`
+                  : autoSyncCountdown !== null
                   ? `Auto-syncing in ${autoSyncCountdown}s — click to sync now`
                   : "Sync Daily Table directly to Google Docs"
               }
@@ -300,8 +339,15 @@ export default function DashboardPage() {
       )}
 
       {/* Unsynced Tasks / Auto-Sync Callout Banner */}
-      {(unsyncedCount > 0 || hasPendingSync) && (
-        <div className="rounded-lg border border-primary/25 bg-primary/5 p-4 transition-all">
+      {(unsyncedCount > 0 || hasPendingSync || syncProblem) && (
+        <div
+          className={cn(
+            "rounded-lg border p-4 transition-all",
+            syncProblem && !isSyncing
+              ? "border-destructive/30 bg-destructive/5"
+              : "border-primary/25 bg-primary/5"
+          )}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
@@ -310,6 +356,8 @@ export default function DashboardPage() {
                     "inline-flex h-2 w-2 rounded-full",
                     isSyncing
                       ? "bg-primary animate-spin"
+                      : syncProblem
+                      ? "bg-destructive"
                       : autoSyncCountdown !== null
                       ? "bg-amber-500 animate-ping"
                       : "bg-primary animate-pulse"
@@ -318,13 +366,23 @@ export default function DashboardPage() {
                 <h2 className="text-sm font-semibold text-foreground">
                   {isSyncing
                     ? "Syncing changes with Google Docs..."
+                    : syncProblem
+                    ? syncProblem.retryable
+                      ? "Auto-sync failed · retrying automatically"
+                      : "Auto-sync paused · action needed"
                     : autoSyncCountdown !== null
                     ? `${unsyncedCount} update${unsyncedCount > 1 ? "s" : ""} · Auto-syncing in ${autoSyncCountdown}s`
                     : `${unsyncedCount} Unsynced Contribution${unsyncedCount > 1 ? "s" : ""} Ready for Ledger`}
                 </h2>
               </div>
               <p className="text-xs text-muted-foreground">
-                {isConnected
+                {syncProblem && !isSyncing
+                  ? `${syncProblem.message.replace(/\.$/, "")}. Your changes are saved${
+                      syncProblem.retryable
+                        ? " and will sync on the next attempt."
+                        : "; fix this, then click Retry now."
+                    }`
+                  : isConnected
                   ? autoSyncCountdown !== null
                     ? "Batching updates every 30 seconds to respect Google Docs rate limits. Click Sync Now to push immediately."
                     : "Tasks logged or modified can be pushed directly into your daily table anytime."
@@ -345,11 +403,21 @@ export default function DashboardPage() {
                     <span>
                       {isSyncing
                         ? "Syncing..."
+                        : syncProblem
+                        ? "Retry now"
                         : autoSyncCountdown !== null
                         ? "Sync Now"
                         : `Sync ${unsyncedCount} Task${unsyncedCount > 1 ? "s" : ""}`}
                     </span>
                   </Button>
+                  {syncProblem && !syncProblem.retryable && (
+                    <Link
+                      href="/settings"
+                      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "text-xs h-8")}
+                    >
+                      Open Settings
+                    </Link>
+                  )}
                   {targetDocId && (
                     <a
                       href={`https://docs.google.com/document/d/${targetDocId}/edit`}
@@ -380,11 +448,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         {/* Completion Rate */}
         <Card
-          onClick={() => setSelectedStatus(selectedStatus === "done" ? "all" : "done")}
+          onClick={() => setSelectedStatus(activeStatus === "done" ? "all" : "done")}
           className={cn(
             "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 cursor-pointer select-none",
             "hover:-translate-y-1 hover:shadow-md hover:border-primary/50 hover:bg-primary/2",
-            selectedStatus === "done" && "ring-2 ring-primary border-primary/60 bg-primary/5"
+            activeStatus === "done" && "ring-2 ring-primary border-primary/60 bg-primary/5"
           )}
           title="Click to filter by completed tasks"
         >
@@ -412,11 +480,11 @@ export default function DashboardPage() {
 
         {/* In Progress */}
         <Card
-          onClick={() => setSelectedStatus(selectedStatus === "in_progress" ? "all" : "in_progress")}
+          onClick={() => setSelectedStatus(activeStatus === "in_progress" ? "all" : "in_progress")}
           className={cn(
             "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 cursor-pointer select-none",
             "hover:-translate-y-1 hover:shadow-md hover:border-blue-500/50 hover:bg-blue-500/2",
-            selectedStatus === "in_progress" && "ring-2 ring-blue-500 border-blue-500/60 bg-blue-500/5"
+            activeStatus === "in_progress" && "ring-2 ring-blue-500 border-blue-500/60 bg-blue-500/5"
           )}
           title="Click to filter by in-progress sprint tasks"
         >
@@ -572,8 +640,8 @@ export default function DashboardPage() {
 
         {/* Status Filter Segmented Control */}
         <div className="bg-muted rounded-md p-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {(["all", "todo", "in_progress", "done", "blocked"] as const).map((statusKey) => {
-            const isSelected = selectedStatus === statusKey
+          {!isBoard && (["all", "todo", "in_progress", "done", "blocked"] as const).map((statusKey) => {
+            const isSelected = activeStatus === statusKey
             const count =
               statusKey === "all"
                 ? tasks.length
@@ -665,14 +733,30 @@ export default function DashboardPage() {
       {/* 4. Tasks View Renders with smooth animation */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={`${viewMode}-${selectedStatus}-${highlightsOnly}`}
+          key={`${viewMode}-${activeStatus}-${highlightsOnly}`}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="w-full"
         >
-          {viewMode === "table" ? (
+          {tasks.length === 0 && tasksError ? (
+            <Card className="flex min-h-72 flex-col items-center justify-center gap-3 p-8 text-center">
+              <AlertCircle className="h-8 w-8 text-destructive" />
+              <div className="space-y-1">
+                <h3 className="text-foreground text-base font-semibold">Couldn&apos;t load your tasks</h3>
+                <p className="text-muted-foreground max-w-sm text-sm">{tasksError}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => fetchTasks()} className="gap-1.5">
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Try again</span>
+              </Button>
+            </Card>
+          ) : tasks.length === 0 && isLoadingTasks ? (
+            <Card className="flex min-h-72 items-center justify-center p-8">
+              <div className="border-primary h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" />
+            </Card>
+          ) : viewMode === "table" ? (
             <TaskTableView tasks={filteredTasks} />
           ) : viewMode === "kanban" ? (
             <TaskKanbanView tasks={filteredTasks} />

@@ -4,9 +4,10 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { FileText, Layers, Settings, Menu, X, LogOut, LogIn } from "lucide-react"
+import { Layers, Settings, Menu, X, LogOut, LogIn } from "lucide-react"
 import { useUser, useClerk, UserButton } from "@clerk/nextjs"
 
+import { TethrLogo } from "@/components/brand/tethr-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 
@@ -69,9 +70,7 @@ export function TopNav() {
 
           {/* Logo & Brand */}
           <Link href="/" className="group flex shrink-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <FileText className="h-4 w-4" />
-            </div>
+            <TethrLogo className="h-8 w-8 transition-transform group-hover:scale-105" />
             <div className="flex shrink-0 flex-col">
               <span className="text-foreground text-sm font-semibold tracking-tight whitespace-nowrap">
                 Tethr

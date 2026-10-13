@@ -28,7 +28,7 @@ import { useUser } from "@clerk/nextjs"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { useIntegrationStore, DailyTableCadence, WeeklyDay } from "@/store/useIntegrationStore"
-import { getAuthHeader } from "@/store/useTaskStore"
+import { authFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { MCP_SSE_URL } from "@/lib/mcp"
 
@@ -134,9 +134,7 @@ export default function SettingsPage() {
 
   const handleGoogleConnect = async () => {
     try {
-      const res = await fetch("/api/v1/integrations/google/auth-url", {
-        headers: getAuthHeader(),
-      })
+      const res = await authFetch("/api/v1/integrations/google/auth-url")
       if (res.ok) {
         const data = await res.json()
         if (data.auth_url) {

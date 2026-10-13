@@ -1,5 +1,6 @@
 import { create } from "zustand"
-import { getAuthHeader, useTaskStore } from "./useTaskStore"
+import { authFetch } from "@/lib/api"
+import { useTaskStore } from "./useTaskStore"
 
 export type DailyTableCadence = "realtime" | "end_of_day" | "weekly"
 export type WeeklyDay = "Friday" | "Saturday" | "Sunday"
@@ -15,7 +16,39 @@ export interface SyncCadence {
   last_weekly_sync_at?: string
   last_monthly_sync_at?: string
   timezone?: string
+  // Set when a background (server-side) sync failed; cleared by the next successful sync
+  table_sync_pending?: boolean
+  last_sync_error?: string | null
+  last_sync_error_at?: string | null
+  last_sync_error_retryable?: boolean
 }
+
+export interface SummaryState {
+  key: string
+  generated: boolean
+  // Tasks were added to or removed from the period since the summary was written
+  stale: boolean
+  summarized_task_count: number | null
+  current_task_count: number
+  generated_at: string | null
+}
+
+export interface SummaryStatus {
+  week_num: number
+  week_start: string
+  week_end: string
+  weekly: SummaryState
+  monthly: SummaryState
+}
+
+export interface AutoSyncError {
+  message: string
+  // false when the user must act (e.g. reconnect Google) before a retry can succeed
+  retryable: boolean
+  failedAt: string
+}
+
+export type SyncResult = { success: boolean; result?: unknown; error?: string; status?: number }
 
 export interface IntegrationState {
   isConnected: boolean
@@ -25,6 +58,9 @@ export interface IntegrationState {
   cadence: SyncCadence
   remainingManualSyncsWeek: number
   remainingManualSyncsMonth: number
+  // AI previews left today on the server's Gemini key (null until loaded)
+  aiPreviewsRemaining: number | null
+  aiPreviewLimit: number
   isLoading: boolean
   isSyncing: boolean
   isCreatingDoc: boolean
@@ -37,6 +73,11 @@ export interface IntegrationState {
   hasPendingDeletions: boolean
   lastSyncedAt: string | null
   inFlightDirty: boolean
+  autoSyncError: AutoSyncError | null
+  summaryStatus: SummaryStatus | null
+  // Until the first status load succeeds, "not connected" is unknown rather than true
+  statusLoaded: boolean
+  statusLoadError: string | null
 
   fetchStatus: () => Promise<void>
   handleOAuthCallback: (code: string) => Promise<{ success: boolean; error?: string }>
@@ -50,26 +91,60 @@ export interface IntegrationState {
     timezone?: string
   }) => Promise<boolean>
   disconnect: () => Promise<boolean>
-  syncDailyTable: (taskIds?: string[]) => Promise<{ success: boolean; result?: unknown; error?: string }>
+  syncDailyTable: (taskIds?: string[]) => Promise<SyncResult>
   syncDocs: (options?: {
     taskIds?: string[]
     cadenceType?: "all" | "weekly" | "monthly" | "daily_table" | "weekly_summary" | "monthly_dossier"
+    // Previewed texts (and the fingerprints from their preview responses) to sync as is
     executiveSummary?: string
+    weeklyFingerprint?: string
+    monthlyDossier?: string
+    monthlyFingerprint?: string
     includeContributions?: boolean
-  }) => Promise<{ success: boolean; result?: unknown; error?: string }>
+  }) => Promise<SyncResult>
   fetchAISummary: (options?: {
     taskIds?: string[]
     mode?: "weekly" | "monthly" | "weekly_rollup" | "monthly_appraisal" | "executive"
     customContext?: string
-  }) => Promise<{ executiveSummary?: string; source?: string; taskCount?: number; error?: string }>
+  }) => Promise<{
+    executiveSummary?: string
+    source?: string
+    taskCount?: number
+    fingerprint?: string
+    error?: string
+  }>
+  fetchPreviewQuota: () => Promise<void>
+  fetchSummaryStatus: () => Promise<void>
   notifyChange: (options?: { isDeletion?: boolean }) => void
   cancelAutoSyncIfClean: () => void
-  flushAutoSync: () => Promise<void>
+  // Resolves true when the daily table synced
+  flushAutoSync: () => Promise<boolean>
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
 let autoSyncTimer: ReturnType<typeof setInterval> | null = null
+
+// Failed background syncs retry after 30s, 1m, 2m, 4m, then every 5m
+let autoSyncRetryTimer: ReturnType<typeof setTimeout> | null = null
+let autoSyncFailures = 0
+const RETRY_BASE_MS = 30_000
+const RETRY_MAX_MS = 5 * 60_000
+
+function clearAutoSyncTimers() {
+  if (autoSyncTimer) {
+    clearInterval(autoSyncTimer)
+    autoSyncTimer = null
+  }
+  if (autoSyncRetryTimer) {
+    clearTimeout(autoSyncRetryTimer)
+    autoSyncRetryTimer = null
+  }
+}
+
+function isOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false
+}
 
 // IANA zone of this browser (e.g. "Asia/Kolkata"); the backend schedules syncs in it
 function browserTimeZone(): string | undefined {
@@ -98,6 +173,8 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   cadence: defaultCadence,
   remainingManualSyncsWeek: 2,
   remainingManualSyncsMonth: 2,
+  aiPreviewsRemaining: null,
+  aiPreviewLimit: 5,
   isLoading: false,
   isSyncing: false,
   isCreatingDoc: false,
@@ -109,13 +186,16 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   hasPendingDeletions: false,
   lastSyncedAt: null,
   inFlightDirty: false,
+  autoSyncError: null,
+  summaryStatus: null,
+  statusLoaded: false,
+  statusLoadError: null,
 
   fetchStatus: async () => {
     set({ isLoading: true, error: null })
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/status`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/status`, {
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
       })
@@ -133,6 +213,8 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
         remainingManualSyncsMonth: data.remaining_manual_syncs_month ?? 2,
         isLoading: false,
         error: null,
+        statusLoaded: true,
+        statusLoadError: null,
       })
 
       // Keep the stored zone in step with the browser (covers users connected before
@@ -142,17 +224,17 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
         void get().updateCadence({ timezone })
       }
     } catch {
-      set({ isLoading: false })
+      // Keep the last known state: a failed load must not look like "not connected"
+      set({ isLoading: false, statusLoadError: "Couldn't load Google Docs status" })
     }
   },
 
   handleOAuthCallback: async (code: string) => {
     set({ isExchangingCode: true, error: null })
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/callback`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/callback`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ code, timezone: browserTimeZone() }),
@@ -184,10 +266,9 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   createGoogleDoc: async (title?: string) => {
     set({ isCreatingDoc: true, error: null })
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/create-doc`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/create-doc`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ title: title || "Tethr — Developer Contribution Ledger" }),
@@ -212,10 +293,9 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
 
   setTargetDoc: async (docId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/target-doc`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/target-doc`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ target_doc_id: docId }),
@@ -243,10 +323,9 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
 
   updateCadence: async (updates) => {
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/cadence`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/cadence`, {
         method: "PATCH",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(updates),
@@ -271,9 +350,8 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
 
   disconnect: async () => {
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/disconnect`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/disconnect`, {
         method: "DELETE",
-        headers: getAuthHeader(),
       })
       if (res.ok || res.status === 204) {
         set({
@@ -302,23 +380,27 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   syncDocs: async (options = {}) => {
     set({ isSyncing: true, error: null })
     try {
-      const res = await fetch(`${API_BASE}/integrations/google/sync`, {
+      const res = await authFetch(`${API_BASE}/integrations/google/sync`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           task_ids: options.taskIds,
           cadence_type: options.cadenceType || "all",
           executive_summary: options.executiveSummary,
+          weekly_fingerprint: options.weeklyFingerprint,
+          monthly_dossier: options.monthlyDossier,
+          monthly_fingerprint: options.monthlyFingerprint,
           include_contributions: options.includeContributions ?? true,
         }),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || "Sync to Google Docs failed")
+        const msg = err.detail || "Sync to Google Docs failed"
+        set({ isSyncing: false, error: msg })
+        return { success: false, error: msg, status: res.status }
       }
 
       const result = await res.json()
@@ -331,8 +413,9 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       }
       set({ isSyncing: false })
       return { success: true, result }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Sync error"
+    } catch {
+      // fetch() itself failed: offline, DNS, or the server is unreachable (no HTTP status)
+      const msg = "Couldn't reach the server"
       set({ isSyncing: false, error: msg })
       return { success: false, error: msg }
     }
@@ -345,10 +428,9 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
           ? "monthly"
           : "weekly"
 
-      const res = await fetch(`${API_BASE}/ai/summarize`, {
+      const res = await authFetch(`${API_BASE}/ai/summarize`, {
         method: "POST",
         headers: {
-          ...getAuthHeader(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -359,19 +441,45 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
       })
 
       if (!res.ok) {
+        if (res.status === 429) set({ aiPreviewsRemaining: 0 })
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || "Failed to generate AI summary")
       }
 
       const data = await res.json()
+      if (typeof data.remaining_previews === "number") {
+        set({ aiPreviewsRemaining: data.remaining_previews })
+      }
       return {
         executiveSummary: data.executive_summary,
         source: data.source,
         taskCount: data.task_count,
+        fingerprint: data.fingerprint,
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "AI synthesis failed"
       return { error: msg }
+    }
+  },
+
+  fetchPreviewQuota: async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/ai/preview-quota`)
+      if (!res.ok) return
+      const data = await res.json()
+      set({ aiPreviewsRemaining: data.remaining, aiPreviewLimit: data.limit })
+    } catch {
+      // Non-critical: the server still enforces the limit
+    }
+  },
+
+  fetchSummaryStatus: async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/integrations/google/summary-status`)
+      if (!res.ok) return
+      set({ summaryStatus: await res.json() })
+    } catch {
+      // Non-critical: only drives the "summary out of date" notice
     }
   },
 
@@ -429,19 +537,55 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
   },
 
   flushAutoSync: async () => {
-    if (autoSyncTimer) {
-      clearInterval(autoSyncTimer)
-      autoSyncTimer = null
-    }
+    clearAutoSyncTimers()
     set({ autoSyncCountdown: null })
 
     if (get().isSyncing) {
       set({ inFlightDirty: true })
-      return
+      return false
     }
 
-    await get().syncDailyTable()
-    set({ hasPendingDeletions: false })
+    if (isOffline()) {
+      // The "online" listener below flushes as soon as the connection is back
+      set({
+        hasPendingSync: true,
+        autoSyncError: {
+          message: "You're offline. Changes will sync to Google Docs when you reconnect.",
+          retryable: true,
+          failedAt: new Date().toISOString(),
+        },
+      })
+      return false
+    }
+
+    const res = await get().syncDailyTable()
+
+    if (!res.success) {
+      // No status = network failure; 5xx/429 are temporary. Other 4xx (e.g. expired Google
+      // access, no target doc) need the user to act, so retrying would only fail again.
+      const retryable = res.status === undefined || res.status >= 500 || res.status === 429
+      autoSyncFailures += 1
+      set({
+        hasPendingSync: true,
+        inFlightDirty: false,
+        autoSyncError: {
+          message: res.error || "Sync to Google Docs failed",
+          retryable,
+          failedAt: new Date().toISOString(),
+        },
+      })
+      if (retryable) {
+        const delay = Math.min(RETRY_BASE_MS * 2 ** (autoSyncFailures - 1), RETRY_MAX_MS)
+        autoSyncRetryTimer = setTimeout(() => {
+          autoSyncRetryTimer = null
+          get().flushAutoSync()
+        }, delay)
+      }
+      return false
+    }
+
+    autoSyncFailures = 0
+    set({ autoSyncError: null, hasPendingDeletions: false })
 
     // If another mutation happened while sync was in-flight, re-arm the timer
     if (get().inFlightDirty) {
@@ -453,5 +597,17 @@ export const useIntegrationStore = create<IntegrationState>((set, get) => ({
         lastSyncedAt: new Date().toISOString(),
       })
     }
+    return true
   },
 }))
+
+// Retry a pending or failed sync as soon as the browser is back online
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    const { isConnected, targetDocId, hasPendingSync, autoSyncError, flushAutoSync } =
+      useIntegrationStore.getState()
+    if (isConnected && targetDocId && (hasPendingSync || autoSyncError?.retryable)) {
+      flushAutoSync()
+    }
+  })
+}

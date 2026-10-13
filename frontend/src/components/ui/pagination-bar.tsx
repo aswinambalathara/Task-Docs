@@ -3,6 +3,7 @@
 import * as React from "react"
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { cn } from "@/lib/utils"
 
 interface PaginationBarProps {
@@ -64,20 +65,17 @@ export function PaginationBar({
         {onPageSizeChange && pageSizeOptions.length > 0 && (
           <div className="flex items-center gap-1.5 ml-2">
             <span className="hidden sm:inline">Per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                onPageSizeChange(Number(e.target.value))
+            <SimpleSelect
+              value={String(pageSize)}
+              onValueChange={(next) => {
+                onPageSizeChange(Number(next))
                 onPageChange(1)
               }}
-              className="bg-card border border-input rounded px-1.5 py-0.5 text-xs text-foreground focus-visible:ring-1 focus-visible:ring-primary outline-none cursor-pointer"
-            >
-              {pageSizeOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+              options={pageSizeOptions.map((opt) => ({ value: String(opt), label: opt }))}
+              aria-label="Rows per page"
+              size="sm"
+              className="w-16 text-xs"
+            />
           </div>
         )}
       </div>

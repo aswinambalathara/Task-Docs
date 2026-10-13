@@ -7,10 +7,7 @@ import {
   ChevronLeft,
   Edit2,
   Trash2,
-  ExternalLink,
-  Check,
   Eye,
-  Calendar,
 } from "lucide-react"
 
 import {
@@ -20,9 +17,8 @@ import {
 } from "@/store/useTaskStore"
 import { TaskDialog } from "@/components/task-dialog"
 import { TaskDetailDialog } from "@/components/task-detail-dialog"
+import { DeleteTaskDialog } from "@/components/delete-task-dialog"
 import { Card } from "@/components/ui/card"
-import { PriorityIndicator } from "@/components/ui/priority-indicator"
-import { TypeBadge } from "@/components/ui/type-badge"
 import { CareerStar } from "@/components/ui/career-star"
 import { cn } from "@/lib/utils"
 
@@ -71,9 +67,10 @@ const KANBAN_COLUMNS: {
 const CARDS_PER_COLUMN_PAGE = 5
 
 export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
-  const { toggleCareerHighlight, updateTaskStatus, deleteTask } = useTaskStore()
+  const { toggleCareerHighlight, updateTaskStatus } = useTaskStore()
   const [editingTask, setEditingTask] = React.useState<Task | null>(null)
   const [viewingTask, setViewingTask] = React.useState<Task | null>(null)
+  const [deletingTask, setDeletingTask] = React.useState<Task | null>(null)
   const [columnPages, setColumnPages] = React.useState<Record<string, number>>({})
 
   const moveTask = (task: Task, direction: "next" | "prev") => {
@@ -152,66 +149,16 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
                             )}
                             onClick={() => setViewingTask(task)}
                           >
-                            <div className="space-y-2.5">
-                              {/* Top Row: Project & Career Star */}
-                              <div className="flex items-center justify-between gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground truncate">
-                                  <span className="text-foreground font-semibold truncate">
-                                    {task.project || "General"}
-                                  </span>
-                                  {task.area && (
-                                    <span className="font-mono text-muted-foreground truncate text-[11px]">
-                                      /{task.area}
-                                    </span>
-                                  )}
-                                </div>
-
+                            {/* Title only; everything else is in the detail view */}
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="text-foreground text-sm font-semibold leading-snug line-clamp-3 wrap-break-word group-hover:text-primary transition-colors">
+                                {task.title}
+                              </h4>
+                              <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <CareerStar
                                   isStarred={Boolean(task.isCareerHighlight)}
                                   onToggle={() => toggleCareerHighlight(task.id)}
                                 />
-                              </div>
-
-                              {/* Title & Description */}
-                              <div>
-                                <h4 className="text-foreground text-sm font-semibold leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                                  {task.title}
-                                </h4>
-                                {task.description && (
-                                  <p className="text-muted-foreground text-xs line-clamp-2 mt-1 leading-relaxed">
-                                    {task.description}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Outcome Preview if present */}
-                              {task.outcome && (
-                                <p className="text-xs text-muted-foreground line-clamp-1 bg-muted/40 p-1.5 rounded-md">
-                                  <span className="font-semibold text-foreground">Impact: </span>
-                                  {task.outcome}
-                                </p>
-                              )}
-
-                              {/* Badges: Type, Priority, Synced */}
-                              <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <TypeBadge type={task.type} />
-                                  <PriorityIndicator priority={task.priority} showLabel={false} />
-                                </div>
-
-                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                  {task.evidence && (
-                                    <span title={task.evidence} className="text-primary hover:underline">
-                                      <ExternalLink className="h-3 w-3" />
-                                    </span>
-                                  )}
-                                  {task.syncedToDocs && (
-                                    <span className="text-success inline-flex items-center gap-0.5 text-[11px] font-medium" title="Synced to Google Docs">
-                                      <Check className="h-3 w-3" />
-                                      <span>Synced</span>
-                                    </span>
-                                  )}
-                                </div>
                               </div>
                             </div>
 
@@ -268,7 +215,7 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => deleteTask(task.id)}
+                                  onClick={() => setDeletingTask(task)}
                                   aria-label={`Delete task ${task.title}`}
                                   title="Delete task"
                                   className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -318,6 +265,12 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
           )
         })}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteTaskDialog
+        task={deletingTask}
+        onOpenChange={(open) => !open && setDeletingTask(null)}
+      />
 
       {/* Task Detail Review Modal */}
       {viewingTask && (

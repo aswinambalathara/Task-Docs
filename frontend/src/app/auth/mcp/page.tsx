@@ -18,6 +18,7 @@ import {
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { authFetch } from "@/lib/api"
 import { MCP_SSE_URL } from "@/lib/mcp"
 
 function MCPAuthContent() {
@@ -70,7 +71,7 @@ function MCPAuthContent() {
         throw new Error("Could not retrieve active session. Please sign in again.")
       }
 
-      const res = await fetch("/api/v1/mcp/authorize", {
+      const res = await authFetch("/api/v1/mcp/authorize", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

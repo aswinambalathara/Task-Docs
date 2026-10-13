@@ -16,6 +16,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { PRIORITY_OPTIONS, STATUS_OPTIONS, TYPE_OPTIONS } from "@/lib/task-options"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import {
   Dialog,
   DialogContent,
@@ -36,7 +38,6 @@ import {
   TaskStatus,
   TaskPriority,
   DeveloperTaskType,
-  DEVELOPER_TASK_TYPES,
 } from "@/store/useTaskStore"
 
 interface TaskDialogProps {
@@ -246,53 +247,39 @@ function TaskFormContent({
                 <Label htmlFor="task-type" className="text-xs font-medium text-foreground">
                   Type
                 </Label>
-                <select
+                <SimpleSelect
                   id="task-type"
                   value={type}
-                  onChange={(e) => setType(e.target.value as DeveloperTaskType)}
-                  className="bg-card border border-input rounded-md h-9 w-full px-2.5 text-xs font-medium text-foreground focus-visible:ring-2 focus-visible:ring-primary outline-none cursor-pointer"
-                >
-                  {DEVELOPER_TASK_TYPES.map((t) => (
-                    <option key={t} value={t} className="bg-popover text-popover-foreground">
-                      {t}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setType}
+                  options={TYPE_OPTIONS}
+                  className="h-9 text-xs"
+                />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="task-priority" className="text-xs font-medium text-foreground">
                   Priority
                 </Label>
-                <select
+                <SimpleSelect
                   id="task-priority"
                   value={priority}
-                  onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                  className="bg-card border border-input rounded-md h-9 w-full px-2.5 text-xs font-medium text-foreground focus-visible:ring-2 focus-visible:ring-primary outline-none cursor-pointer"
-                >
-                  <option value="low" className="bg-popover text-popover-foreground">Low</option>
-                  <option value="medium" className="bg-popover text-popover-foreground">Medium</option>
-                  <option value="high" className="bg-popover text-popover-foreground">High</option>
-                  <option value="urgent" className="bg-popover text-popover-foreground">Urgent</option>
-                </select>
+                  onValueChange={setPriority}
+                  options={PRIORITY_OPTIONS}
+                  className="h-9 text-xs"
+                />
               </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor="task-status" className="text-xs font-medium text-foreground">
                   Status
                 </Label>
-                <select
+                <SimpleSelect
                   id="task-status"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                  className="bg-card border border-input rounded-md h-9 w-full px-2.5 text-xs font-medium text-foreground focus-visible:ring-2 focus-visible:ring-primary outline-none cursor-pointer"
-                >
-                  <option value="todo" className="bg-popover text-popover-foreground">To do</option>
-                  <option value="in_progress" className="bg-popover text-popover-foreground">In progress</option>
-                  <option value="done" className="bg-popover text-popover-foreground">Done</option>
-                  <option value="blocked" className="bg-popover text-popover-foreground">Blocked</option>
-                  <option value="cancelled" className="bg-popover text-popover-foreground">Cancelled</option>
-                </select>
+                  onValueChange={setStatus}
+                  options={STATUS_OPTIONS}
+                  className="h-9 text-xs"
+                />
               </div>
             </div>
 

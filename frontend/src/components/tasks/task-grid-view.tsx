@@ -17,6 +17,7 @@ import {
 import { useTaskStore, Task } from "@/store/useTaskStore"
 import { TaskDialog } from "@/components/task-dialog"
 import { TaskDetailDialog } from "@/components/task-detail-dialog"
+import { DeleteTaskDialog } from "@/components/delete-task-dialog"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,9 +28,10 @@ import { CareerStar } from "@/components/ui/career-star"
 import { cn } from "@/lib/utils"
 
 export function TaskGridView({ tasks }: { tasks: Task[] }) {
-  const { toggleCareerHighlight, deleteTask } = useTaskStore()
+  const { toggleCareerHighlight } = useTaskStore()
   const [editingTask, setEditingTask] = React.useState<Task | null>(null)
   const [viewingTask, setViewingTask] = React.useState<Task | null>(null)
+  const [deletingTask, setDeletingTask] = React.useState<Task | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
 
   // Pagination state
@@ -184,7 +186,7 @@ export function TaskGridView({ tasks }: { tasks: Task[] }) {
                       </button>
                       <button
                         type="button"
-                        onClick={() => deleteTask(task.id)}
+                        onClick={() => setDeletingTask(task)}
                         title="Delete task"
                         className="p-1 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                       >
@@ -210,6 +212,12 @@ export function TaskGridView({ tasks }: { tasks: Task[] }) {
           />
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteTaskDialog
+        task={deletingTask}
+        onOpenChange={(open) => !open && setDeletingTask(null)}
+      />
 
       {/* Task Detail Review Modal */}
       {viewingTask && (
