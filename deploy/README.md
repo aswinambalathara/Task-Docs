@@ -14,10 +14,11 @@ separately from this repo; do that first. Tethr's entry there: app `tethr`, port
 | `/opt/apps/tethr/.env` | `TAG=sha-…` of the running version (`.prev` files hold the one before) | `deploy` |
 | `/opt/apps/tethr/api.env`, `web.env` | Runtime secrets, written by hand on the server, never in Git | `root:deploy 640` |
 | `/etc/nginx/sites-available/tethr.conf`, `/etc/nginx/snippets/tethr-tls.conf` | Reverse proxy, downloaded from this repo | `root` |
-| `/etc/letsencrypt/live/tethr/` | HTTPS certificate for both hostnames, renewed by certbot's timer | `root` |
+| `/etc/letsencrypt/live/tethr/` | HTTPS certificate for all three hostnames, renewed by certbot's timer | `root` |
 
 | Hostname | Serves |
 |---|---|
+| `tethr.aswin-ambalathara.space` | Public homepage, `/privacy` and `/terms` (same web container; other paths redirect to `app.`) |
 | `app.tethr.aswin-ambalathara.space` | Web app (container port 3000); `/api/v1` is proxied to the API by Next.js |
 | `api.tethr.aswin-ambalathara.space` | API and MCP server (container port 8000); MCP clients connect to `https://api.tethr.aswin-ambalathara.space/sse` |
 
@@ -27,6 +28,7 @@ At the domain's DNS provider:
 
 | Type | Name | Value | TTL |
 |---|---|---|---|
+| A | `tethr` | `80.225.251.247` | 300 |
 | A | `app.tethr` | `80.225.251.247` | 300 |
 | A | `api.tethr` | `80.225.251.247` | 300 |
 
@@ -91,7 +93,8 @@ The private key `tethr-deploy` goes into GitHub (below); delete the local copy a
 ```bash
 sudo certbot certonly --webroot -w /var/www/html --cert-name tethr \
   --deploy-hook "systemctl reload nginx" \
-  -d app.tethr.aswin-ambalathara.space -d api.tethr.aswin-ambalathara.space
+  -d tethr.aswin-ambalathara.space -d app.tethr.aswin-ambalathara.space \
+  -d api.tethr.aswin-ambalathara.space
 sudo certbot renew --dry-run
 ```
 
@@ -119,7 +122,9 @@ workflow manually with no commit so the web image is rebuilt with the new key.
 ## Google OAuth (Docs integration)
 
 In the Google Cloud console, add `https://app.tethr.aswin-ambalathara.space/settings` as an
-authorized redirect URI. Leaving the OAuth consent screen in **Testing** makes Google expire refresh
+authorized redirect URI. On the consent screen, the home page is `https://tethr.aswin-ambalathara.space`,
+the privacy policy `/privacy` and the terms of service `/terms` on that host, and the authorized
+domain is `aswin-ambalathara.space`. Leaving the OAuth consent screen in **Testing** makes Google expire refresh
 tokens after 7 days, which breaks scheduled syncs; for private use, set it to **In production**
 without verification (you will see an "unverified app" warning when connecting, which is expected).
 
