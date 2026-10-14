@@ -18,7 +18,12 @@ mcp = FastMCP(
     instructions=(
         "Tethr MCP Server enables AI programming assistants to track engineering tasks, "
         "log granular contribution notes, highlight appraisal-worthy achievements, "
-        "and synchronize impact ledgers directly to Google Docs."
+        "and synchronize impact ledgers directly to Google Docs.\n\n"
+        "Logging rules: every task is one row of the user's Google Docs ledger table. Keep "
+        "`outcome` to one sentence about the result (max 160 characters) and `evidence` to "
+        "references only: PR number, commit SHA, branch or link (max 120 characters). Put the "
+        "root cause, approach and other details in `description` or a `contribution_note`. "
+        "Over-long values are rejected with instructions to shorten them."
     ),
 )
 

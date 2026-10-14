@@ -4,12 +4,19 @@ Contains MCP tool implementations for engineering task management,
 contribution logging, impact querying, and Google Docs synchronization.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import Field
 
-from app.core.constants import DEVELOPER_TASK_TYPES, DeveloperTaskType
+from app.core.constants import (
+    DESCRIPTION_MAX_CHARS,
+    DEVELOPER_TASK_TYPES,
+    EVIDENCE_MAX_CHARS,
+    OUTCOME_MAX_CHARS,
+    DeveloperTaskType,
+)
 from app.mcp import formatting
 from app.mcp.context import get_current_mcp_user_id
 from app.schemas.task import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
@@ -24,6 +31,67 @@ SUMMARY_SCOPES: dict[str, Literal["daily_table", "weekly_summary", "monthly_doss
     "both": "all",
 }
 
+# Outcome and Evidence become Google Doc table cells, so they must stay short. The limits are
+# published in the tool schema (maxLength) so agents see them before calling, and checked in
+# the tool so an over-long value gets an explanation instead of a bare validation error.
+OUTCOME_HELP = (
+    f"One sentence, at most {OUTCOME_MAX_CHARS} characters: the result of the work, not how "
+    'you got there (e.g. "Restored the portal sidebar in production"). '
+    "Put the investigation and details in `description`."
+)
+EVIDENCE_HELP = (
+    f"References only, at most {EVIDENCE_MAX_CHARS} characters: PR number, commit SHA, branch "
+    'or link (e.g. "PR #142, commit eb05be0d"). No explanations.'
+)
+DESCRIPTION_HELP = (
+    f"Optional full story, at most {DESCRIPTION_MAX_CHARS} characters: root cause, approach, "
+    "trade-offs, anything too long for `outcome` or `evidence`. Not shown in the Google Doc table."
+)
+
+OutcomeArg = Annotated[
+    str | None,
+    Field(description=OUTCOME_HELP, json_schema_extra={"maxLength": OUTCOME_MAX_CHARS}),
+]
+EvidenceArg = Annotated[
+    str | None,
+    Field(description=EVIDENCE_HELP, json_schema_extra={"maxLength": EVIDENCE_MAX_CHARS}),
+]
+DescriptionArg = Annotated[
+    str | None,
+    Field(description=DESCRIPTION_HELP, json_schema_extra={"maxLength": DESCRIPTION_MAX_CHARS}),
+]
+
+FIELD_LIMITS = {
+    "outcome": OUTCOME_MAX_CHARS,
+    "evidence": EVIDENCE_MAX_CHARS,
+    "description": DESCRIPTION_MAX_CHARS,
+}
+
+
+def length_error(tool_name: str, **fields: str | None) -> str | None:
+    """
+    Explains to the agent which of outcome / evidence / description is too long and how to
+    fix it, or returns None when everything fits.
+    """
+    problems = [
+        f"- `{name}` is {len(value)} characters (limit {FIELD_LIMITS[name]})"
+        for name, value in fields.items()
+        if value is not None and len(value) > FIELD_LIMITS[name]
+    ]
+    if not problems:
+        return None
+    return (
+        "❌ **Not saved: some fields are too long for the Google Docs ledger.**\n"
+        + "\n".join(problems)
+        + "\n\nHow to fix:\n"
+        f"- `outcome`: one sentence about the result, at most {OUTCOME_MAX_CHARS} characters.\n"
+        f"- `evidence`: references only (PR, commit SHA, branch, link), "
+        f"at most {EVIDENCE_MAX_CHARS} characters.\n"
+        f"- Move the details into `description` (at most {DESCRIPTION_MAX_CHARS} characters) "
+        "or `contribution_note`.\n"
+        f"Then call `{tool_name}` again."
+    )
+
 
 async def add_task(
     title: str,
@@ -32,24 +100,28 @@ async def add_task(
     type: str = "Feature",
     status: str = "todo",
     priority: str = "medium",
-    outcome: str | None = None,
-    evidence: str | None = None,
+    outcome: OutcomeArg = None,
+    evidence: EvidenceArg = None,
+    description: DescriptionArg = None,
     requested_by: str | None = None,
     is_career_highlight: bool = False,
     ctx: Context | None = None,
 ) -> str:
     """
-    Creates a new impact task in Tethr.
+    Creates a new impact task in Tethr. Each task becomes one row of the user's Google Docs
+    ledger table, so keep `outcome` and `evidence` short and put the full story in
+    `description`.
 
     Args:
-        title: What did you do or what needs to be done?
+        title: What did you do or what needs to be done? One line.
         project: Project or repository name (default: "General").
         area: Technical component or architectural area (e.g., "Auth", "Enrichment", "UI", "Database").
-        type: Category: Feature, Bugfix, Refactoring, Performance, Testing, Documentation, DevOps, Architecture, Security, Other.
+        type: Category: Feature, Bug Fix, Improvement, Investigation, Research / POC, Performance, Infrastructure, AI / LLM, UI / UX, Data.
         status: Initial state: todo, in_progress, done, blocked, cancelled (default: "todo").
         priority: Priority level: low, medium, high, urgent (default: "medium").
-        outcome: Measurable outcome or shipped impact (e.g., "Reduced latency by 40%").
-        evidence: Verifiable proof (e.g., "PR #142", commit SHA, deployment link).
+        outcome: One sentence (max 160 chars): the result, e.g. "Reduced latency by 40%".
+        evidence: References only (max 120 chars): PR number, commit SHA, branch or link.
+        description: Optional full story (max 2000 chars): root cause, approach, details.
         requested_by: Requesting stakeholder, ticket ref, or "Self-initiated".
         is_career_highlight: True if this achievement is review-cycle worthy.
     """
@@ -57,6 +129,11 @@ async def add_task(
         user_id = get_current_mcp_user_id()
     except ValueError as e:
         return f"Error: {e}"
+
+    if error := length_error(
+        "add_task", outcome=outcome, evidence=evidence, description=description
+    ):
+        return error
 
     # Normalize type to valid DeveloperTaskType or fallback to 'Feature'
     valid_type: DeveloperTaskType = "Feature"
@@ -83,6 +160,7 @@ async def add_task(
         priority=norm_priority,
         outcome=outcome,
         evidence=evidence,
+        description=description,
         requested_by=requested_by,
         is_career_highlight=is_career_highlight,
     )
@@ -101,20 +179,24 @@ async def add_task(
 async def update_task(
     task_id: str,
     status: str | None = None,
-    outcome: str | None = None,
-    evidence: str | None = None,
+    outcome: OutcomeArg = None,
+    evidence: EvidenceArg = None,
+    description: DescriptionArg = None,
     contribution_note: str | None = None,
     is_career_highlight: bool | None = None,
     ctx: Context | None = None,
 ) -> str:
     """
     Updates an existing task in Tethr. Can also append an engineering contribution note.
+    `outcome` and `evidence` are Google Docs table cells: keep them short and put details in
+    `description` or `contribution_note`.
 
     Args:
         task_id: The unique MongoDB ID of the task to update.
         status: New state: todo, in_progress, done, blocked, cancelled.
-        outcome: Updated business or technical outcome description.
-        evidence: Updated verifiable proof (e.g. PR URL, commit hash).
+        outcome: One sentence (max 160 chars): the result of the work.
+        evidence: References only (max 120 chars): PR number, commit SHA, branch or link.
+        description: Full story (max 2000 chars); replaces the task's current description.
         contribution_note: Optional note to append to the task's engineering log history.
         is_career_highlight: Set to true if this task should be flagged for career appraisal.
     """
@@ -122,6 +204,11 @@ async def update_task(
         user_id = get_current_mcp_user_id()
     except ValueError as e:
         return f"Error: {e}"
+
+    if error := length_error(
+        "update_task", outcome=outcome, evidence=evidence, description=description
+    ):
+        return error
 
     norm_status: TaskStatus | None = None
     if status and status in ["todo", "in_progress", "done", "blocked", "cancelled"]:
@@ -134,6 +221,8 @@ async def update_task(
         update_kwargs["outcome"] = outcome
     if evidence is not None:
         update_kwargs["evidence"] = evidence
+    if description is not None:
+        update_kwargs["description"] = description
     if contribution_note is not None:
         update_kwargs["contribution_note"] = contribution_note
     if is_career_highlight is not None:
