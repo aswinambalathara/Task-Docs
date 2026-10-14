@@ -30,7 +30,6 @@ import { TaskTableView } from "@/components/tasks/task-table-view"
 import { TaskKanbanView } from "@/components/tasks/task-kanban-view"
 import { TaskGridView } from "@/components/tasks/task-grid-view"
 import { SmartSyncModal } from "@/components/smart-sync-modal"
-import { AnimatedBackground } from "@/components/animated-background"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -141,7 +140,6 @@ export default function DashboardPage() {
   if (!isSignedIn) {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
-        <AnimatedBackground />
         <div className="w-full max-w-md space-y-6">
           <Card className="border border-border p-6 text-center space-y-6 sm:p-8">
             <div className="flex flex-col items-center space-y-3">
@@ -182,7 +180,6 @@ export default function DashboardPage() {
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <AnimatedBackground />
       {/* 1. Header Banner & Actions */}
       <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
         <div className="space-y-1">

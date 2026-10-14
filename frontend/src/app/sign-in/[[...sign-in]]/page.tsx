@@ -8,7 +8,6 @@ import { useClerk } from "@clerk/nextjs"
 
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { AnimatedBackground } from "@/components/animated-background"
 
 export default function SignInPage() {
   const clerk = useClerk()
@@ -35,7 +34,6 @@ export default function SignInPage() {
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] w-full items-center justify-center px-4 py-2 select-none">
-      <AnimatedBackground />
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

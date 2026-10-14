@@ -244,7 +244,7 @@ function MCPAuthContent() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 sm:p-6 bg-background">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-xl">
         <Card className="p-6 sm:p-8 space-y-6 shadow-xl border-border/80">
           {/* Header */}

@@ -43,7 +43,7 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] w-full items-center justify-center px-4 py-2 select-none bg-background">
+    <div className="flex h-[calc(100dvh-4rem)] w-full items-center justify-center px-4 py-2 select-none">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
