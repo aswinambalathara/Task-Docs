@@ -12,6 +12,7 @@ from typing import Any
 from googleapiclient.discovery import build
 from loguru import logger
 
+from app.core.constants import DOC_CELL_MAX_CHARS
 from app.models.integration import Integration, SyncCadence
 from app.models.task import Task
 from app.services.docs import periods
@@ -49,6 +50,161 @@ def clean_markdown_for_docs(text: str) -> str:
     # Clean excessive blank lines
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+# --- Daily table layout ---------------------------------------------------------------------
+
+# Columns of the daily contribution table, with each one's share of the table width (sums to
+# 100). Short fixed values get narrow columns; the free-text ones get the room.
+DAILY_TABLE_COLUMNS: list[tuple[str, int]] = [
+    ("Date", 7),
+    ("Project", 8),
+    ("Area", 8),
+    ("Contribution", 17),
+    ("Type", 8),
+    ("Priority", 8),
+    ("Requested By", 9),
+    ("Status", 8),
+    ("Outcome", 15),
+    ("Evidence", 12),
+]
+DAILY_TABLE_FONT_PT = 9
+
+STATUS_LABELS = {
+    "todo": "To do",
+    "in_progress": "In progress",
+    "done": "Done",
+    "blocked": "Blocked",
+    "cancelled": "Cancelled",
+}
+
+# US Letter with 1" margins, used when the document doesn't report its own page setup
+DEFAULT_PAGE = {"width": 612.0, "height": 792.0, "margin": 72.0}
+
+
+def doc_cell_text(value: str | None, limit: int = DOC_CELL_MAX_CHARS, empty: str = "—") -> str:
+    """
+    Text for one table cell: whitespace collapsed onto one line, and cut at a word boundary
+    with an ellipsis when longer than `limit`. Only the Doc is shortened; the task keeps the
+    full text.
+    """
+    if not value or not value.strip():
+        return empty
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:.-") + "…"
+
+
+def _magnitude(style: dict, *path: str, default: float) -> float:
+    node: Any = style
+    for key in path:
+        node = node.get(key, {}) if isinstance(node, dict) else {}
+    value = node.get("magnitude") if isinstance(node, dict) else None
+    return float(value) if value else default
+
+
+def landscape_request(document_style: dict) -> dict | None:
+    """
+    An updateDocumentStyle request that turns a portrait page sideways (keeping its paper
+    size), or None when the page is already landscape. Ten columns don't fit on portrait.
+    """
+    width = _magnitude(document_style, "pageSize", "width", default=DEFAULT_PAGE["width"])
+    height = _magnitude(document_style, "pageSize", "height", default=DEFAULT_PAGE["height"])
+    if width >= height:
+        return None
+    return {
+        "updateDocumentStyle": {
+            "documentStyle": {
+                "pageSize": {
+                    "width": {"magnitude": height, "unit": "PT"},
+                    "height": {"magnitude": width, "unit": "PT"},
+                }
+            },
+            "fields": "pageSize",
+        }
+    }
+
+
+def landscape_table_width(document_style: dict) -> float:
+    """Width available to a table once the page is landscape: the long side minus margins."""
+    width = _magnitude(document_style, "pageSize", "width", default=DEFAULT_PAGE["width"])
+    height = _magnitude(document_style, "pageSize", "height", default=DEFAULT_PAGE["height"])
+    left = _magnitude(document_style, "marginLeft", default=DEFAULT_PAGE["margin"])
+    right = _magnitude(document_style, "marginRight", default=DEFAULT_PAGE["margin"])
+    return max(width, height) - left - right
+
+
+def _utf16_len(text: str) -> int:
+    # Docs API indexes count UTF-16 code units, not Python characters
+    return len(text.encode("utf-16-le")) // 2
+
+
+def daily_table_layout_requests(
+    table_start: int,
+    cells: list[tuple[int, int, str]],
+    table_width: float,
+) -> list[dict]:
+    """
+    Requests that size the daily table's columns and set its font, sent in the same
+    batchUpdate right after the cell text is inserted.
+
+    `cells` holds (row, start index before insertion, text) for every cell; the text ranges
+    are worked out as they will be once all of the text has been inserted.
+    """
+    requests: list[dict] = []
+    for column, (_, share) in enumerate(DAILY_TABLE_COLUMNS):
+        requests.append({
+            "updateTableColumnProperties": {
+                "tableStartLocation": {"index": table_start},
+                "columnIndices": [column],
+                "tableColumnProperties": {
+                    "widthType": "FIXED_WIDTH",
+                    "width": {"magnitude": round(table_width * share / 100, 1), "unit": "PT"},
+                },
+                "fields": "widthType,width",
+            }
+        })
+
+    # Inserting text shifts every later cell, so walk the cells in document order
+    shift = 0
+    for row, start, text in sorted(cells, key=lambda cell: cell[1]):
+        length = _utf16_len(text)
+        if length:
+            text_style: dict[str, Any] = {"fontSize": {"magnitude": DAILY_TABLE_FONT_PT, "unit": "PT"}}
+            fields = "fontSize"
+            if row == 0:
+                text_style["bold"] = True
+                fields = "fontSize,bold"
+            requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": start + shift, "endIndex": start + shift + length},
+                    "textStyle": text_style,
+                    "fields": fields,
+                }
+            })
+        shift += length
+    return requests
+
+
+def daily_table_row(task: Task) -> list[str]:
+    """One task as the cells of a daily table row, in DAILY_TABLE_COLUMNS order."""
+    return [
+        task.date.strftime("%b %d"),
+        doc_cell_text(task.project, empty="General"),
+        doc_cell_text(task.area),
+        doc_cell_text(task.title),
+        task.type or "Feature",
+        task.priority.upper() if task.priority else "MEDIUM",
+        doc_cell_text(task.requested_by, empty="Self-initiated"),
+        STATUS_LABELS.get(task.status, task.status.capitalize()) if task.status else "Done",
+        doc_cell_text(task.outcome),
+        doc_cell_text(task.evidence),
+    ]
 
 
 def insert_native_daily_table(
@@ -387,6 +543,15 @@ def render_structured_ledger_document(
                 body={"requests": [{"deleteContentRange": {"range": {"startIndex": 1, "endIndex": end_idx}}}]},
             ).execute()
 
+    # Landscape page, so the 10-column daily table has room
+    document_style = doc.get("documentStyle", {})
+    table_width = landscape_table_width(document_style)
+    orientation = landscape_request(document_style)
+    if orientation:
+        service.documents().batchUpdate(
+            documentId=document_id, body={"requests": [orientation]}
+        ).execute()
+
     # 2. Insert Root Title
     root_title = "Tethr — Task Documentation\n"
     service.documents().batchUpdate(
@@ -456,24 +621,8 @@ def render_structured_ledger_document(
                 cur_doc = service.documents().get(documentId=document_id).execute()
                 t_idx = cur_doc["body"]["content"][-1]["endIndex"] - 1
 
-                headers = [
-                    "Date", "Project", "Area", "Contribution", "Type",
-                    "Priority", "Requested By", "Status", "Outcome", "Evidence"
-                ]
-                rows_data = [headers]
-                for t in w_tasks:
-                    rows_data.append([
-                        t.date.strftime("%b %d"),
-                        t.project or "General",
-                        t.area or "—",
-                        t.title or "—",
-                        t.type or "Feature",
-                        t.priority.upper() if t.priority else "MEDIUM",
-                        t.requested_by or "Self-initiated",
-                        t.status.capitalize() if t.status else "Done",
-                        t.outcome or "—",
-                        t.evidence or "—",
-                    ])
+                headers = [header for header, _ in DAILY_TABLE_COLUMNS]
+                rows_data = [headers] + [daily_table_row(t) for t in w_tasks]
 
                 num_rows = len(rows_data)
                 num_cols = len(headers)
@@ -493,13 +642,17 @@ def render_structured_ledger_document(
                 if t_el:
                     t_start = t_el["startIndex"]
                     cells_to_fill = []
+                    layout_cells = []
                     for r_idx, r in enumerate(t_el["table"]["tableRows"]):
                         for c_idx, c in enumerate(r["tableCells"]):
                             val = str(rows_data[r_idx][c_idx])
                             start = c["content"][0]["startIndex"]
                             cells_to_fill.append((start, val))
+                            layout_cells.append((r_idx, start, val))
                     cells_to_fill.sort(key=lambda x: x[0], reverse=True)
                     fill_reqs = [{"insertText": {"location": {"index": s}, "text": v}} for s, v in cells_to_fill]
+                    # Column widths and a smaller font, so long cells don't stack a word per line
+                    fill_reqs.extend(daily_table_layout_requests(t_start, layout_cells, table_width))
 
                     # Header style: Soft Corporate Blue (#D9EAF7)
                     fill_reqs.append({
@@ -782,8 +935,8 @@ def build_daily_contribution_log_table(tasks: list[Task]) -> str:
         date_str = t.date.strftime("%b %d")
         area_str = t.area or "—"
         req_str = t.requested_by or "—"
-        outcome_str = t.outcome or "—"
-        evidence_str = t.evidence or "—"
+        outcome_str = doc_cell_text(t.outcome)
+        evidence_str = doc_cell_text(t.evidence)
         status_str = t.status.capitalize()
         lines.append(
             f"| {date_str} | {t.project} | {area_str} | {t.title} | {t.type} | {t.priority.upper()} | {req_str} | {status_str} | {outcome_str} | {evidence_str} |"

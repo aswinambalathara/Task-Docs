@@ -207,3 +207,57 @@ async def test_oauth_metadata_endpoints(client):
     assert "authorization_endpoint" in auth_data
     assert "token_endpoint" in auth_data
     assert "registration_endpoint" in auth_data
+
+
+@pytest.mark.asyncio
+async def test_mcp_rejects_long_outcome_and_evidence(setup_test_db):
+    """
+    Over-long outcome / evidence are not saved; the agent is told the limits and where the
+    details belong. A short outcome with a long description is accepted.
+    """
+    ctx_token = current_mcp_user_var.set("mock_user_lengths")
+    try:
+        result = await add_task(
+            title="Hotfix prod sidebar regression",
+            outcome="Root-caused a recurring prod-only UI regression " * 6,
+            evidence="Branch hotfix/prod-sidebar-restore, commit eb05be0d, merged to core-prod. " * 3,
+        )
+        assert "Not saved" in result
+        assert "`outcome` is" in result and "limit 160" in result
+        assert "`evidence` is" in result and "limit 120" in result
+        assert "description" in result
+        assert await Task.find_one({"user_id": "mock_user_lengths"}) is None
+
+        story = "The 9 Oct merge resolved a sidebar.tsx conflict by keeping prod's side. " * 10
+        result = await add_task(
+            title="Hotfix prod sidebar regression",
+            outcome="Restored the portal sidebar in production",
+            evidence="hotfix/prod-sidebar-restore, eb05be0d",
+            description=story,
+        )
+        assert "Task Created Successfully" in result
+        task = await Task.find_one({"user_id": "mock_user_lengths"})
+        assert task.description == story
+
+        result = await update_task(task_id=str(task.id), outcome="y" * 161)
+        assert "Not saved" in result and "update_task" in result
+
+        result = await update_task(task_id=str(task.id), description="Shorter story")
+        assert "Updated Successfully" in result
+        assert (await Task.get(task.id)).description == "Shorter story"
+    finally:
+        current_mcp_user_var.reset(ctx_token)
+
+
+@pytest.mark.asyncio
+async def test_mcp_schema_publishes_length_limits():
+    """Agents read the limits from the tool schema before calling."""
+    from app.mcp.server import mcp
+
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+    for name in ("add_task", "update_task"):
+        props = tools[name].inputSchema["properties"]
+        assert props["outcome"]["maxLength"] == 160
+        assert props["evidence"]["maxLength"] == 120
+        assert props["description"]["maxLength"] == 2000
+        assert "description" in props["outcome"]["description"]

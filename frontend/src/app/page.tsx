@@ -25,6 +25,7 @@ import { useTaskStore, TaskStatus } from "@/store/useTaskStore"
 import { useIntegrationStore, type AutoSyncError } from "@/store/useIntegrationStore"
 import { useUser } from "@clerk/nextjs"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { TaskDialog } from "@/components/task-dialog"
 import { TaskTableView } from "@/components/tasks/task-table-view"
 import { TaskKanbanView } from "@/components/tasks/task-kanban-view"
@@ -34,14 +35,10 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { useOnboardingStatus } from "@/lib/onboarding"
 
 export default function DashboardPage() {
-  const {
-    tasks,
-    fetchTasks,
-    isLoading: isLoadingTasks,
-    error: tasksError,
-  } = useTaskStore()
+  const { tasks, fetchTasks, isLoading: isLoadingTasks, error: tasksError } = useTaskStore()
   const {
     isConnected,
     targetDocId,
@@ -61,6 +58,14 @@ export default function DashboardPage() {
   } | null>(null)
 
   const { isLoaded, isSignedIn, user } = useUser()
+  const router = useRouter()
+  const { isCompleted: onboardingCompleted } = useOnboardingStatus()
+  // First visit after signing up: show the tour before the dashboard
+  const needsOnboarding = isLoaded && !!isSignedIn && !onboardingCompleted
+
+  React.useEffect(() => {
+    if (needsOnboarding) router.replace("/onboarding")
+  }, [needsOnboarding, router])
   const mounted = React.useSyncExternalStore(
     () => () => {},
     () => true,
@@ -128,7 +133,7 @@ export default function DashboardPage() {
   })
 
   // Initial SSR mount & Clerk load guard
-  if (!mounted || !isLoaded) {
+  if (!mounted || !isLoaded || needsOnboarding) {
     return (
       <div className="container mx-auto flex max-w-7xl items-center justify-center px-4 py-16">
         <div className="border-primary h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" />
@@ -141,13 +146,13 @@ export default function DashboardPage() {
     return (
       <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
         <div className="w-full max-w-md space-y-6">
-          <Card className="border border-border p-6 text-center space-y-6 sm:p-8">
+          <Card className="border-border space-y-6 border p-6 text-center sm:p-8">
             <div className="flex flex-col items-center space-y-3">
               <div className="bg-muted text-foreground flex h-12 w-12 items-center justify-center rounded-lg">
                 <Lock className="h-6 w-6" />
               </div>
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <div className="bg-muted text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   <span>Developer Workspace</span>
                 </div>
@@ -169,7 +174,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="border-t border-border pt-3 text-xs text-muted-foreground">
+            <div className="border-border text-muted-foreground border-t pt-3 text-xs">
               Stateless RS256 JWT authenticated • Strict Multi-Tenancy
             </div>
           </Card>
@@ -181,7 +186,7 @@ export default function DashboardPage() {
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       {/* 1. Header Banner & Actions */}
-      <div className="flex flex-col justify-between gap-4 border-b border-border pb-4 sm:flex-row sm:items-center">
+      <div className="border-border flex flex-col justify-between gap-4 border-b pb-4 sm:flex-row sm:items-center">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -191,7 +196,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => fetchStatus()}
-                className="hidden items-center gap-1.5 rounded-full bg-destructive/10 border border-destructive/25 px-2.5 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/15 transition-colors sm:inline-flex"
+                className="bg-destructive/10 border-destructive/25 text-destructive hover:bg-destructive/15 hidden items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors sm:inline-flex"
                 title="Click to try again"
               >
                 <AlertCircle className="h-3 w-3" />
@@ -200,24 +205,24 @@ export default function DashboardPage() {
             ) : !statusLoaded ? null : !isConnected ? (
               <Link
                 href="/settings"
-                className="hidden items-center gap-1.5 rounded-full bg-muted border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors sm:inline-flex"
+                className="bg-muted border-border text-muted-foreground hover:text-foreground hidden items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors sm:inline-flex"
                 title="Google Docs is not connected. Click to connect in Settings."
               >
                 <AlertCircle className="h-3 w-3 text-amber-500" />
                 <span>Docs Not Connected</span>
               </Link>
             ) : isSyncing ? (
-              <span className="hidden items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-medium text-primary sm:inline-flex">
+              <span className="bg-primary/10 border-primary/20 text-primary hidden items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium sm:inline-flex">
                 <RefreshCw className="h-3 w-3 animate-spin" />
                 <span>Syncing Docs...</span>
               </span>
             ) : unsyncedCount > 0 ? (
-              <span className="hidden items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/25 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400 sm:inline-flex">
+              <span className="hidden items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 sm:inline-flex dark:text-amber-400">
                 <Clock className="h-3 w-3" />
                 <span>{unsyncedCount} Pending Sync</span>
               </span>
             ) : (
-              <span className="hidden items-center gap-1.5 rounded-full bg-success/10 border border-success/25 px-2.5 py-0.5 text-xs font-medium text-success sm:inline-flex">
+              <span className="bg-success/10 border-success/25 text-success hidden items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium sm:inline-flex">
                 <CheckCircle2 className="h-3 w-3" />
                 <span>All Synced to Docs</span>
               </span>
@@ -226,7 +231,10 @@ export default function DashboardPage() {
           <p className="text-muted-foreground text-sm font-normal">
             Welcome back,{" "}
             <span className="text-foreground font-medium">
-              {user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress?.split("@")[0] || "Developer"}
+              {user?.fullName ||
+                user?.username ||
+                user?.primaryEmailAddress?.emailAddress?.split("@")[0] ||
+                "Developer"}
             </span>
             . Track engineering milestones and synchronize impact ledgers.
           </p>
@@ -241,7 +249,7 @@ export default function DashboardPage() {
               onClick={handleSyncDailyTable}
               disabled={isSyncing}
               className={cn(
-                "gap-2 border-border shadow-xs hover:border-primary/50 text-xs sm:text-sm font-medium transition-all",
+                "border-border hover:border-primary/50 gap-2 text-xs font-medium shadow-xs transition-all sm:text-sm",
                 autoSyncCountdown !== null && "border-primary/60 bg-primary/5",
                 syncProblem && !isSyncing && "border-destructive/50 bg-destructive/5"
               )}
@@ -249,13 +257,13 @@ export default function DashboardPage() {
                 syncProblem
                   ? `Last sync failed: ${syncProblem.message} — click to retry`
                   : autoSyncCountdown !== null
-                  ? `Auto-syncing in ${autoSyncCountdown}s — click to sync now`
-                  : "Sync Daily Table directly to Google Docs"
+                    ? `Auto-syncing in ${autoSyncCountdown}s — click to sync now`
+                    : "Sync Daily Table directly to Google Docs"
               }
             >
               <RefreshCw
                 className={cn(
-                  "h-4 w-4 text-primary",
+                  "text-primary h-4 w-4",
                   isSyncing && "animate-spin",
                   !isSyncing && autoSyncCountdown !== null && "animate-pulse"
                 )}
@@ -264,11 +272,15 @@ export default function DashboardPage() {
                 {isSyncing
                   ? "Syncing..."
                   : autoSyncCountdown !== null
-                  ? `Sync Now (${autoSyncCountdown}s)`
-                  : "Sync Daily Table"}
+                    ? `Sync Now (${autoSyncCountdown}s)`
+                    : "Sync Daily Table"}
               </span>
               <span className="sm:hidden">
-                {isSyncing ? "Syncing" : autoSyncCountdown !== null ? `${autoSyncCountdown}s` : "Sync"}
+                {isSyncing
+                  ? "Syncing"
+                  : autoSyncCountdown !== null
+                    ? `${autoSyncCountdown}s`
+                    : "Sync"}
               </span>
             </Button>
           ) : (
@@ -276,11 +288,11 @@ export default function DashboardPage() {
               href="/settings"
               className={cn(
                 buttonVariants({ variant: "outline", size: "sm" }),
-                "gap-2 border-border shadow-xs hover:border-primary/50 text-xs sm:text-sm font-medium"
+                "border-border hover:border-primary/50 gap-2 text-xs font-medium shadow-xs sm:text-sm"
               )}
               title="Connect Google Docs in Settings to sync"
             >
-              <RefreshCw className="h-4 w-4 text-muted-foreground" />
+              <RefreshCw className="text-muted-foreground h-4 w-4" />
               <span>Connect Docs</span>
             </Link>
           )}
@@ -305,19 +317,19 @@ export default function DashboardPage() {
         >
           <div className="flex items-center gap-2.5">
             {syncFeedback.type === "success" ? (
-              <CheckCircle className="h-4 w-4 text-success shrink-0" />
+              <CheckCircle className="text-success h-4 w-4 shrink-0" />
             ) : (
-              <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+              <AlertCircle className="text-destructive h-4 w-4 shrink-0" />
             )}
-            <span className="text-xs sm:text-sm font-medium">{syncFeedback.message}</span>
+            <span className="text-xs font-medium sm:text-sm">{syncFeedback.message}</span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex shrink-0 items-center gap-2">
             {syncFeedback.type === "success" && targetDocId && (
               <a
                 href={`https://docs.google.com/document/d/${targetDocId}/edit`}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline underline-offset-2 hover:opacity-80"
+                className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline underline-offset-2 hover:opacity-80"
               >
                 <span>Open Google Doc</span>
                 <ExternalLink className="h-3 w-3" />
@@ -326,7 +338,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setSyncFeedback(null)}
-              className="text-xs text-muted-foreground hover:text-foreground ml-2 px-1.5 py-0.5 rounded"
+              className="text-muted-foreground hover:text-foreground ml-2 rounded px-1.5 py-0.5 text-xs"
               aria-label="Dismiss feedback"
             >
               ✕
@@ -345,7 +357,7 @@ export default function DashboardPage() {
               : "border-primary/25 bg-primary/5"
           )}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
                 <span
@@ -354,25 +366,25 @@ export default function DashboardPage() {
                     isSyncing
                       ? "bg-primary animate-spin"
                       : syncProblem
-                      ? "bg-destructive"
-                      : autoSyncCountdown !== null
-                      ? "bg-amber-500 animate-ping"
-                      : "bg-primary animate-pulse"
+                        ? "bg-destructive"
+                        : autoSyncCountdown !== null
+                          ? "animate-ping bg-amber-500"
+                          : "bg-primary animate-pulse"
                   )}
                 />
-                <h2 className="text-sm font-semibold text-foreground">
+                <h2 className="text-foreground text-sm font-semibold">
                   {isSyncing
                     ? "Syncing changes with Google Docs..."
                     : syncProblem
-                    ? syncProblem.retryable
-                      ? "Auto-sync failed · retrying automatically"
-                      : "Auto-sync paused · action needed"
-                    : autoSyncCountdown !== null
-                    ? `${unsyncedCount} update${unsyncedCount > 1 ? "s" : ""} · Auto-syncing in ${autoSyncCountdown}s`
-                    : `${unsyncedCount} Unsynced Contribution${unsyncedCount > 1 ? "s" : ""} Ready for Ledger`}
+                      ? syncProblem.retryable
+                        ? "Auto-sync failed · retrying automatically"
+                        : "Auto-sync paused · action needed"
+                      : autoSyncCountdown !== null
+                        ? `${unsyncedCount} update${unsyncedCount > 1 ? "s" : ""} · Auto-syncing in ${autoSyncCountdown}s`
+                        : `${unsyncedCount} Unsynced Contribution${unsyncedCount > 1 ? "s" : ""} Ready for Ledger`}
                 </h2>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {syncProblem && !isSyncing
                   ? `${syncProblem.message.replace(/\.$/, "")}. Your changes are saved${
                       syncProblem.retryable
@@ -380,37 +392,40 @@ export default function DashboardPage() {
                         : "; fix this, then click Retry now."
                     }`
                   : isConnected
-                  ? autoSyncCountdown !== null
-                    ? "Batching updates every 30 seconds to respect Google Docs rate limits. Click Sync Now to push immediately."
-                    : "Tasks logged or modified can be pushed directly into your daily table anytime."
-                  : "You've logged tasks locally. Connect your Google Doc in Settings to immediately synchronize your daily table."}
+                    ? autoSyncCountdown !== null
+                      ? "Batching updates every 30 seconds to respect Google Docs rate limits. Click Sync Now to push immediately."
+                      : "Tasks logged or modified can be pushed directly into your daily table anytime."
+                    : "You've logged tasks locally. Connect your Google Doc in Settings to immediately synchronize your daily table."}
               </p>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex shrink-0 items-center gap-2">
               {isConnected ? (
                 <>
                   <Button
                     size="sm"
                     onClick={handleSyncDailyTable}
                     disabled={isSyncing}
-                    className="gap-1.5 text-xs h-8"
+                    className="h-8 gap-1.5 text-xs"
                   >
                     <RefreshCw className={cn("h-3.5 w-3.5", isSyncing && "animate-spin")} />
                     <span>
                       {isSyncing
                         ? "Syncing..."
                         : syncProblem
-                        ? "Retry now"
-                        : autoSyncCountdown !== null
-                        ? "Sync Now"
-                        : `Sync ${unsyncedCount} Task${unsyncedCount > 1 ? "s" : ""}`}
+                          ? "Retry now"
+                          : autoSyncCountdown !== null
+                            ? "Sync Now"
+                            : `Sync ${unsyncedCount} Task${unsyncedCount > 1 ? "s" : ""}`}
                     </span>
                   </Button>
                   {syncProblem && !syncProblem.retryable && (
                     <Link
                       href="/settings"
-                      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "text-xs h-8")}
+                      className={cn(
+                        buttonVariants({ variant: "outline", size: "sm" }),
+                        "h-8 text-xs"
+                      )}
                     >
                       Open Settings
                     </Link>
@@ -420,7 +435,10 @@ export default function DashboardPage() {
                       href={`https://docs.google.com/document/d/${targetDocId}/edit`}
                       target="_blank"
                       rel="noreferrer"
-                      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5 text-xs h-8")}
+                      className={cn(
+                        buttonVariants({ variant: "outline", size: "sm" }),
+                        "h-8 gap-1.5 text-xs"
+                      )}
                     >
                       <span>Open Doc</span>
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -430,7 +448,7 @@ export default function DashboardPage() {
               ) : (
                 <Link
                   href="/settings"
-                  className={cn(buttonVariants({ size: "sm" }), "gap-1.5 text-xs h-8")}
+                  className={cn(buttonVariants({ size: "sm" }), "h-8 gap-1.5 text-xs")}
                 >
                   <span>Connect Google Docs</span>
                   <ArrowRight className="h-3.5 w-3.5" />
@@ -447,17 +465,17 @@ export default function DashboardPage() {
         <Card
           onClick={() => setSelectedStatus(activeStatus === "done" ? "all" : "done")}
           className={cn(
-            "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 cursor-pointer select-none",
-            "hover:-translate-y-1 hover:shadow-md hover:border-primary/50 hover:bg-primary/2",
-            activeStatus === "done" && "ring-2 ring-primary border-primary/60 bg-primary/5"
+            "group relative cursor-pointer space-y-2.5 overflow-hidden p-4 transition-all duration-300 select-none",
+            "hover:border-primary/50 hover:bg-primary/2 hover:-translate-y-1 hover:shadow-md",
+            activeStatus === "done" && "ring-primary border-primary/60 bg-primary/5 ring-2"
           )}
           title="Click to filter by completed tasks"
         >
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-semibold uppercase tracking-wider group-hover:text-foreground transition-colors">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <span className="group-hover:text-foreground font-semibold tracking-wider uppercase transition-colors">
               Completion
             </span>
-            <Sparkles className="h-4 w-4 text-primary transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
+            <Sparkles className="text-primary h-4 w-4 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-foreground text-2xl font-bold tracking-tight">
@@ -467,9 +485,9 @@ export default function DashboardPage() {
               {completedTasks}/{totalTasks} tasks
             </span>
           </div>
-          <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+          <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-500 ease-out group-hover:brightness-110"
+              className="bg-primary h-full rounded-full transition-all duration-500 ease-out group-hover:brightness-110"
               style={{ width: `${progressPercentage}%` }}
             />
           </div>
@@ -479,17 +497,18 @@ export default function DashboardPage() {
         <Card
           onClick={() => setSelectedStatus(activeStatus === "in_progress" ? "all" : "in_progress")}
           className={cn(
-            "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 cursor-pointer select-none",
-            "hover:-translate-y-1 hover:shadow-md hover:border-blue-500/50 hover:bg-blue-500/2",
-            activeStatus === "in_progress" && "ring-2 ring-blue-500 border-blue-500/60 bg-blue-500/5"
+            "group relative cursor-pointer space-y-2.5 overflow-hidden p-4 transition-all duration-300 select-none",
+            "hover:-translate-y-1 hover:border-blue-500/50 hover:bg-blue-500/2 hover:shadow-md",
+            activeStatus === "in_progress" &&
+              "border-blue-500/60 bg-blue-500/5 ring-2 ring-blue-500"
           )}
           title="Click to filter by in-progress sprint tasks"
         >
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-semibold uppercase tracking-wider group-hover:text-foreground transition-colors">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <span className="group-hover:text-foreground font-semibold tracking-wider uppercase transition-colors">
               In Progress
             </span>
-            <Clock className="h-4 w-4 text-status-progress transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
+            <Clock className="text-status-progress h-4 w-4 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-foreground text-2xl font-bold tracking-tight">
@@ -497,8 +516,8 @@ export default function DashboardPage() {
             </span>
             <span className="text-muted-foreground text-xs">active sprint tasks</span>
           </div>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-status-progress animate-pulse" />
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <span className="bg-status-progress h-1.5 w-1.5 animate-pulse rounded-full" />
             <span>Active coding</span>
           </p>
         </Card>
@@ -507,26 +526,26 @@ export default function DashboardPage() {
         <Card
           onClick={() => setHighlightsOnly(!highlightsOnly)}
           className={cn(
-            "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 cursor-pointer select-none",
-            "hover:-translate-y-1 hover:shadow-md hover:border-amber-500/50 hover:bg-amber-500/2",
-            highlightsOnly && "ring-2 ring-amber-500 border-amber-500/60 bg-amber-500/5"
+            "group relative cursor-pointer space-y-2.5 overflow-hidden p-4 transition-all duration-300 select-none",
+            "hover:-translate-y-1 hover:border-amber-500/50 hover:bg-amber-500/2 hover:shadow-md",
+            highlightsOnly && "border-amber-500/60 bg-amber-500/5 ring-2 ring-amber-500"
           )}
           title="Click to toggle career highlight dossier items"
         >
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-semibold uppercase tracking-wider group-hover:text-foreground transition-colors">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <span className="group-hover:text-foreground font-semibold tracking-wider uppercase transition-colors">
               Career Highlights
             </span>
-            <Star className="h-4 w-4 text-highlight fill-highlight transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12" />
+            <Star className="text-highlight fill-highlight h-4 w-4 transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-foreground text-2xl font-bold tracking-tight">
               {careerHighlightsCount}
             </span>
-            <span className="text-xs text-muted-foreground">dossier items</span>
+            <span className="text-muted-foreground text-xs">dossier items</span>
           </div>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-highlight" />
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <span className="bg-highlight h-1.5 w-1.5 rounded-full" />
             <span>Target for appraisal</span>
           </p>
         </Card>
@@ -535,8 +554,8 @@ export default function DashboardPage() {
         <Card
           onClick={isConnected && unsyncedCount > 0 ? handleSyncDailyTable : undefined}
           className={cn(
-            "group relative overflow-hidden p-4 space-y-2.5 transition-all duration-300 select-none",
-            "hover:-translate-y-1 hover:shadow-md hover:border-emerald-500/50 hover:bg-emerald-500/2",
+            "group relative space-y-2.5 overflow-hidden p-4 transition-all duration-300 select-none",
+            "hover:-translate-y-1 hover:border-emerald-500/50 hover:bg-emerald-500/2 hover:shadow-md",
             isConnected && unsyncedCount > 0 ? "cursor-pointer" : "cursor-default"
           )}
           title={
@@ -545,37 +564,35 @@ export default function DashboardPage() {
               : "Google Docs synchronization status"
           }
         >
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-semibold uppercase tracking-wider group-hover:text-foreground transition-colors">
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <span className="group-hover:text-foreground font-semibold tracking-wider uppercase transition-colors">
               Docs Synced
             </span>
-            <FileText className="h-4 w-4 text-success transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-12" />
+            <FileText className="text-success h-4 w-4 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-12" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-foreground text-2xl font-bold tracking-tight">
               {syncedDocsCount}
             </span>
-            <span className="text-muted-foreground text-xs">
-              /{totalTasks} synced records
-            </span>
+            <span className="text-muted-foreground text-xs">/{totalTasks} synced records</span>
           </div>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
             <span
               className={cn(
                 "h-1.5 w-1.5 rounded-full",
                 !isConnected
                   ? "bg-muted-foreground"
                   : unsyncedCount === 0
-                  ? "bg-success"
-                  : "bg-amber-500 animate-pulse"
+                    ? "bg-success"
+                    : "animate-pulse bg-amber-500"
               )}
             />
             <span>
               {!isConnected
                 ? "Ledger not connected"
                 : unsyncedCount === 0
-                ? "Ledger fully in sync"
-                : `${unsyncedCount} pending auto-sync`}
+                  ? "Ledger fully in sync"
+                  : `${unsyncedCount} pending auto-sync`}
             </span>
           </p>
         </Card>
@@ -591,13 +608,14 @@ export default function DashboardPage() {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="bg-highlight-soft border border-highlight/30 rounded-lg p-3.5 flex items-center justify-between shadow-xs">
+            <div className="bg-highlight-soft border-highlight/30 flex items-center justify-between rounded-lg border p-3.5 shadow-xs">
               <div className="flex items-center gap-2.5">
-                <Star className="h-4 w-4 text-highlight fill-highlight shrink-0 animate-pulse" />
+                <Star className="text-highlight fill-highlight h-4 w-4 shrink-0 animate-pulse" />
                 <div>
-                  <h2 className="text-sm font-semibold text-foreground">Career evidence</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Showing {filteredTasks.length} starred appraisal-worthy task(s) for your impact portfolio.
+                  <h2 className="text-foreground text-sm font-semibold">Career evidence</h2>
+                  <p className="text-muted-foreground text-xs">
+                    Showing {filteredTasks.length} starred appraisal-worthy task(s) for your impact
+                    portfolio.
                   </p>
                 </div>
               </div>
@@ -605,7 +623,7 @@ export default function DashboardPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setHighlightsOnly(false)}
-                className="text-xs h-7 hover:bg-highlight/10 cursor-pointer"
+                className="hover:bg-highlight/10 h-7 cursor-pointer text-xs"
               >
                 Clear filter
               </Button>
@@ -615,7 +633,7 @@ export default function DashboardPage() {
       </AnimatePresence>
 
       {/* 3. Filter, Search & View Controls Bar */}
-      <div className="flex flex-col gap-3 rounded-lg border border-border p-2 bg-card sm:flex-row sm:items-center sm:justify-between">
+      <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-2 sm:flex-row sm:items-center sm:justify-between">
         {/* Search bar */}
         <div className="relative w-full sm:w-72">
           <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
@@ -623,7 +641,7 @@ export default function DashboardPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search contribution, project..."
-            className="pl-9 h-9 text-xs"
+            className="h-9 pl-9 text-xs"
           />
           {searchQuery && (
             <button
@@ -636,45 +654,46 @@ export default function DashboardPage() {
         </div>
 
         {/* Status Filter Segmented Control */}
-        <div className="bg-muted rounded-md p-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {!isBoard && (["all", "todo", "in_progress", "done", "blocked"] as const).map((statusKey) => {
-            const isSelected = activeStatus === statusKey
-            const count =
-              statusKey === "all"
-                ? tasks.length
-                : tasks.filter((t) => t.status === statusKey).length
-            const labelMap: Record<string, string> = {
-              all: "All",
-              todo: "To do",
-              in_progress: "In progress",
-              done: "Done",
-              blocked: "Blocked",
-            }
+        <div className="bg-muted no-scrollbar flex items-center gap-1 overflow-x-auto rounded-md p-1">
+          {!isBoard &&
+            (["all", "todo", "in_progress", "done", "blocked"] as const).map((statusKey) => {
+              const isSelected = activeStatus === statusKey
+              const count =
+                statusKey === "all"
+                  ? tasks.length
+                  : tasks.filter((t) => t.status === statusKey).length
+              const labelMap: Record<string, string> = {
+                all: "All",
+                todo: "To do",
+                in_progress: "In progress",
+                done: "Done",
+                blocked: "Blocked",
+              }
 
-            return (
-              <button
-                key={statusKey}
-                onClick={() => setSelectedStatus(statusKey)}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap select-none flex items-center gap-1.5",
-                  isSelected
-                    ? "bg-card shadow-xs text-foreground font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span>{labelMap[statusKey]}</span>
-                <span className="text-[10px] text-muted-foreground">({count})</span>
-              </button>
-            )
-          })}
+              return (
+                <button
+                  key={statusKey}
+                  onClick={() => setSelectedStatus(statusKey)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-all select-none",
+                    isSelected
+                      ? "bg-card text-foreground font-semibold shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span>{labelMap[statusKey]}</span>
+                  <span className="text-muted-foreground text-[10px]">({count})</span>
+                </button>
+              )
+            })}
 
           {/* Highlights toggle */}
           <button
             onClick={() => setHighlightsOnly(!highlightsOnly)}
             className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-all whitespace-nowrap select-none flex items-center gap-1",
+              "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-all select-none",
               highlightsOnly
-                ? "bg-highlight-soft text-foreground font-semibold border border-highlight/40"
+                ? "bg-highlight-soft text-foreground border-highlight/40 border font-semibold"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -684,13 +703,13 @@ export default function DashboardPage() {
         </div>
 
         {/* View Switcher: Table / Board / Grid */}
-        <div className="bg-muted rounded-md p-1 flex items-center gap-0.5 shrink-0 self-start sm:self-auto">
+        <div className="bg-muted flex shrink-0 items-center gap-0.5 self-start rounded-md p-1 sm:self-auto">
           <button
             onClick={() => setViewMode("table")}
             className={cn(
-              "rounded-md p-1.5 text-xs transition-colors flex items-center gap-1",
+              "flex items-center gap-1 rounded-md p-1.5 text-xs transition-colors",
               viewMode === "table"
-                ? "bg-card shadow-xs text-foreground font-semibold"
+                ? "bg-card text-foreground font-semibold shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             )}
             title="Table View"
@@ -701,9 +720,9 @@ export default function DashboardPage() {
           <button
             onClick={() => setViewMode("kanban")}
             className={cn(
-              "rounded-md p-1.5 text-xs transition-colors flex items-center gap-1",
+              "flex items-center gap-1 rounded-md p-1.5 text-xs transition-colors",
               viewMode === "kanban"
-                ? "bg-card shadow-xs text-foreground font-semibold"
+                ? "bg-card text-foreground font-semibold shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             )}
             title="Board View"
@@ -714,9 +733,9 @@ export default function DashboardPage() {
           <button
             onClick={() => setViewMode("grid")}
             className={cn(
-              "rounded-md p-1.5 text-xs transition-colors flex items-center gap-1",
+              "flex items-center gap-1 rounded-md p-1.5 text-xs transition-colors",
               viewMode === "grid"
-                ? "bg-card shadow-xs text-foreground font-semibold"
+                ? "bg-card text-foreground font-semibold shadow-xs"
                 : "text-muted-foreground hover:text-foreground"
             )}
             title="Grid View"
@@ -739,9 +758,11 @@ export default function DashboardPage() {
         >
           {tasks.length === 0 && tasksError ? (
             <Card className="flex min-h-72 flex-col items-center justify-center gap-3 p-8 text-center">
-              <AlertCircle className="h-8 w-8 text-destructive" />
+              <AlertCircle className="text-destructive h-8 w-8" />
               <div className="space-y-1">
-                <h3 className="text-foreground text-base font-semibold">Couldn&apos;t load your tasks</h3>
+                <h3 className="text-foreground text-base font-semibold">
+                  Couldn&apos;t load your tasks
+                </h3>
                 <p className="text-muted-foreground max-w-sm text-sm">{tasksError}</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => fetchTasks()} className="gap-1.5">

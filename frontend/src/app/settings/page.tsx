@@ -18,10 +18,11 @@ import {
   Sparkles,
   AlertCircle,
   Loader2,
+  PlayCircle,
 } from "lucide-react"
 
 import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useUser } from "@clerk/nextjs"
@@ -256,14 +257,20 @@ export default function SettingsPage() {
   return (
     <div className="container mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       {/* Header */}
-      <div className="border-border space-y-1 border-b pb-4">
-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-          Settings &amp; Integrations
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Manage Google Docs synchronization, cadences, theme appearance, and MCP protocol
-          connections.
-        </p>
+      <div className="border-border flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+            Settings &amp; Integrations
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Manage Google Docs synchronization, cadences, theme appearance, and MCP protocol
+            connections.
+          </p>
+        </div>
+        <Link href="/onboarding" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start sm:self-auto")}>
+          <PlayCircle className="h-3.5 w-3.5" />
+          Replay tour
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
