@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AnimatedBackground } from "@/components/animated-background"
 import { AuthTokenBridge } from "@/components/auth-token-bridge"
 import { TopNav } from "@/components/layout/top-nav"
+import { SiteFooter } from "@/components/layout/site-footer"
 import "./globals.css"
 
 const inter = Inter({
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AuthTokenBridge />
             <TopNav />
             <main className="flex flex-1 flex-col">{children}</main>
+            <SiteFooter />
           </ThemeProvider>
         </body>
       </html>
