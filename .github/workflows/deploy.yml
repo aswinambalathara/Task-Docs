@@ -54,6 +54,7 @@ jobs:
           if grep -q '^frontend/' <<<"$files"; then echo "web=true"; else echo "web=false"; fi >>"$GITHUB_OUTPUT"
 
   build:
+    name: build (${{ matrix.service }})
     needs: [ci, changes]
     runs-on: ubuntu-24.04-arm
     permissions:
