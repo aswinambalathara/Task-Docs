@@ -5,12 +5,25 @@ import Link from "next/link"
 import { motion } from "framer-motion"
 import { FileText, ArrowRight, ShieldCheck, Check, Sparkles, Loader2 } from "lucide-react"
 import { useClerk } from "@clerk/nextjs"
+import { useSearchParams } from "next/navigation"
 
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { safeRedirectUrl, withRedirect } from "@/lib/redirect"
 
 export default function SignUpPage() {
+  // useSearchParams needs a Suspense boundary to keep the page prerenderable
+  return (
+    <React.Suspense>
+      <SignUpForm />
+    </React.Suspense>
+  )
+}
+
+function SignUpForm() {
   const clerk = useClerk()
+  // Where to go once signed in, e.g. back to /auth/mcp mid-authorization
+  const redirectTarget = useSearchParams().get("redirect_url")
   const [loadingProvider, setLoadingProvider] = React.useState<string | null>(null)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
@@ -18,12 +31,13 @@ export default function SignUpPage() {
     if (!clerk.loaded || !clerk.client) return
     setLoadingProvider(provider)
     setErrorMsg(null)
+    const redirectUrlComplete = safeRedirectUrl(redirectTarget, window.location.href).href
 
     try {
       await clerk.client.signUp.authenticateWithRedirect({
         strategy: provider,
         redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/",
+        redirectUrlComplete,
       })
     } catch {
       // If already registered or smart captcha fallback, authenticate via signIn
@@ -31,7 +45,7 @@ export default function SignUpPage() {
         await clerk.client.signIn.authenticateWithRedirect({
           strategy: provider,
           redirectUrl: "/sso-callback",
-          redirectUrlComplete: "/",
+          redirectUrlComplete,
         })
       } catch (innerErr) {
         setLoadingProvider(null)
@@ -162,7 +176,7 @@ export default function SignUpPage() {
           {/* Switch link */}
           <div className="text-muted-foreground border-t border-border pt-2 text-center text-xs">
             Already have an account?{" "}
-            <Link href="/sign-in" className="text-primary font-medium hover:underline">
+            <Link href={withRedirect("/sign-in", redirectTarget)} className="text-primary font-medium hover:underline">
               Sign in
             </Link>
           </div>

@@ -5,12 +5,25 @@ import Link from "next/link"
 import { motion } from "framer-motion"
 import { FileText, ArrowRight, ShieldCheck, Loader2 } from "lucide-react"
 import { useClerk } from "@clerk/nextjs"
+import { useSearchParams } from "next/navigation"
 
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { safeRedirectUrl, withRedirect } from "@/lib/redirect"
 
 export default function SignInPage() {
+  // useSearchParams needs a Suspense boundary to keep the page prerenderable
+  return (
+    <React.Suspense>
+      <SignInForm />
+    </React.Suspense>
+  )
+}
+
+function SignInForm() {
   const clerk = useClerk()
+  // Where to go once signed in, e.g. back to /auth/mcp mid-authorization
+  const redirectTarget = useSearchParams().get("redirect_url")
   const [loadingProvider, setLoadingProvider] = React.useState<string | null>(null)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
@@ -18,12 +31,13 @@ export default function SignInPage() {
     if (!clerk.loaded || !clerk.client) return
     setLoadingProvider(provider)
     setErrorMsg(null)
+    const redirectUrlComplete = safeRedirectUrl(redirectTarget, window.location.href).href
 
     try {
       await clerk.client.signIn.authenticateWithRedirect({
         strategy: provider,
         redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/",
+        redirectUrlComplete,
       })
     } catch (err) {
       setLoadingProvider(null)
@@ -122,7 +136,7 @@ export default function SignInPage() {
 
           <div className="text-muted-foreground border-t border-border pt-2 text-center text-xs">
             New to Tethr?{" "}
-            <Link href="/sign-up" className="text-primary font-medium hover:underline">
+            <Link href={withRedirect("/sign-up", redirectTarget)} className="text-primary font-medium hover:underline">
               Create account
             </Link>
           </div>
