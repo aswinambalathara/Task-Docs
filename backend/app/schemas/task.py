@@ -1,13 +1,18 @@
-from datetime import datetime
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.core.constants import DeveloperTaskType
 
 TaskStatus = Literal["todo", "in_progress", "done", "blocked", "cancelled"]
 TaskPriority = Literal["low", "medium", "high", "urgent"]
 TaskType = DeveloperTaskType
+
+# MongoDB returns naive UTC values; mark them UTC so clients don't read them as local time
+UTCDatetime = Annotated[
+    datetime, AfterValidator(lambda d: d if d.tzinfo else d.replace(tzinfo=UTC))
+]
 
 
 class ContributionCreate(BaseModel):
@@ -16,7 +21,7 @@ class ContributionCreate(BaseModel):
 
 class ContributionResponse(BaseModel):
     note: str
-    logged_at: datetime
+    logged_at: UTCDatetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,7 +82,7 @@ class TaskUpdate(BaseModel):
 class TaskResponse(BaseModel):
     id: str
     user_id: str
-    date: datetime
+    date: UTCDatetime
     title: str
     description: str | None = None
     status: TaskStatus
@@ -92,9 +97,9 @@ class TaskResponse(BaseModel):
     contributions: list[ContributionResponse] = Field(default_factory=list)
     synced_to_docs: bool = False
     tags: list[str] = Field(default_factory=list)
-    completed_at: datetime | None = None
-    created_at: datetime
-    updated_at: datetime
+    completed_at: UTCDatetime | None = None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)

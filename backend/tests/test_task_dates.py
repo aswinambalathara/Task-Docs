@@ -200,3 +200,22 @@ async def test_mcp_tools_use_dates_in_user_zone():
     assert "Finished in January" in on_day
     assert "Finished in January" not in today
     assert "**Completed:** 2026-01-15 12:00" in marked
+
+
+@pytest.mark.asyncio
+async def test_rest_times_are_marked_utc(client):
+    headers = {"Authorization": "Bearer mock_user_utc"}
+    created = await client.post(
+        "/api/v1/tasks",
+        json={"title": "t", "status": "done", "initial_contribution": "n"},
+        headers=headers,
+    )
+    task = created.json()
+    for value in (task["date"], task["created_at"], task["completed_at"]):
+        assert value.endswith("Z")
+    assert task["contributions"][0]["logged_at"].endswith("Z")
+
+    # Read back from the database, where they're stored without a time zone
+    listed = (await client.get("/api/v1/tasks", headers=headers)).json()["items"][0]
+    assert listed["created_at"].endswith("Z")
+    assert listed["contributions"][0]["logged_at"].endswith("Z")
