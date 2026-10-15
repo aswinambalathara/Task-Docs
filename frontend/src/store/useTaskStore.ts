@@ -40,6 +40,7 @@ export interface Task {
   isCareerHighlight: boolean
   dueDate?: string
   date: string
+  completedAt?: string
   createdAt: string
   updatedAt?: string
   syncedToDocs: boolean
@@ -61,6 +62,8 @@ export type CreateTaskInput = {
   requestedBy?: string
   isCareerHighlight?: boolean
   dueDate?: string
+  // Day the work happened (ISO); defaults to now on the server
+  date?: string
   tags?: string[]
 }
 
@@ -108,6 +111,7 @@ interface BackendTask {
   contributions?: { note: string; logged_at: string }[]
   synced_to_docs?: boolean
   tags?: string[]
+  completed_at?: string | null
   created_at: string
   updated_at?: string
 }
@@ -138,6 +142,7 @@ function mapBackendToTask(t: BackendTask): Task {
     isCareerHighlight: Boolean(t.is_career_highlight),
     dueDate: t.date || undefined,
     date: t.date || t.created_at,
+    completedAt: t.completed_at || undefined,
     createdAt: t.created_at,
     updatedAt: t.updated_at,
     syncedToDocs: Boolean(t.synced_to_docs),
@@ -214,7 +219,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       requestedBy: taskInput.requestedBy,
       isCareerHighlight: Boolean(taskInput.isCareerHighlight),
       dueDate: taskInput.dueDate,
-      date: new Date().toISOString(),
+      date: taskInput.date || new Date().toISOString(),
+      completedAt: taskInput.status === "done" ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString(),
       syncedToDocs: false,
       tags: taskInput.tags && taskInput.tags.length > 0 ? taskInput.tags : [taskInput.type || "Feature"],
@@ -245,6 +251,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           evidence: taskInput.evidence,
           requested_by: taskInput.requestedBy,
           is_career_highlight: Boolean(taskInput.isCareerHighlight),
+          date: taskInput.date,
           tags: optimisticTask.tags,
         }),
       })
@@ -284,6 +291,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       if (updates.evidence !== undefined) payload.evidence = updates.evidence
       if (updates.requestedBy !== undefined) payload.requested_by = updates.requestedBy
       if (updates.isCareerHighlight !== undefined) payload.is_career_highlight = updates.isCareerHighlight
+      if (updates.date !== undefined) payload.date = updates.date
       if (updates.tags !== undefined) payload.tags = updates.tags
 
       const res = await authFetch(`${API_BASE}/tasks/${id}`, {
@@ -302,6 +310,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
               ? {
                   ...task,
                   syncedToDocs: updated.synced_to_docs ?? task.syncedToDocs,
+                  // Set or cleared by the server when the status moves in or out of done
+                  completedAt: updated.completed_at || undefined,
                 }
               : task
           ),

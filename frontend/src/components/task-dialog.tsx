@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CareerStar } from "@/components/ui/career-star"
 import { cn } from "@/lib/utils"
+import { toWorkDate } from "@/lib/date-range"
 import {
   useTaskStore,
   Task,
@@ -94,7 +95,7 @@ function TaskFormContent({
         evidence: evidence.trim() || undefined,
         requestedBy: requestedBy.trim() || undefined,
         isCareerHighlight,
-        dueDate: date ? date.toISOString() : undefined,
+        date: date ? date.toISOString() : undefined,
         tags: parsedTags.length > 0 ? parsedTags : [type],
       })
     } else {
@@ -110,7 +111,7 @@ function TaskFormContent({
         evidence: evidence.trim() || undefined,
         requestedBy: requestedBy.trim() || undefined,
         isCareerHighlight,
-        dueDate: date ? date.toISOString() : undefined,
+        date: date ? date.toISOString() : undefined,
         tags: parsedTags.length > 0 ? parsedTags : [type],
       })
     }
@@ -297,7 +298,7 @@ function TaskFormContent({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-foreground">Date</Label>
+                <Label className="text-xs font-medium text-foreground">Work date</Label>
                 <Popover>
                   <PopoverTrigger
                     render={
@@ -314,7 +315,11 @@ function TaskFormContent({
                     {date ? format(date, "PPP") : <span>Pick date</span>}
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar mode="single" selected={date} onSelect={setDate} />
+                    <Calendar
+                      mode="single"
+                      selected={date}
+                      onSelect={(day) => setDate(day && toWorkDate(day))}
+                    />
                   </PopoverContent>
                 </Popover>
               </div>

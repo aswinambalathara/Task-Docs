@@ -30,12 +30,14 @@ import { TaskDialog } from "@/components/task-dialog"
 import { TaskTableView } from "@/components/tasks/task-table-view"
 import { TaskKanbanView } from "@/components/tasks/task-kanban-view"
 import { TaskGridView } from "@/components/tasks/task-grid-view"
+import { DateRangeFilter } from "@/components/tasks/date-range-filter"
 import { SmartSyncModal } from "@/components/smart-sync-modal"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useOnboardingStatus } from "@/lib/onboarding"
+import { isActiveInRange, type DatePreset, type DayRange } from "@/lib/date-range"
 
 export function DashboardPage() {
   const { tasks, fetchTasks, isLoading: isLoadingTasks, error: tasksError } = useTaskStore()
@@ -102,6 +104,8 @@ export function DashboardPage() {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedStatus, setSelectedStatus] = React.useState<TaskStatus | "all">("all")
   const [highlightsOnly, setHighlightsOnly] = React.useState(false)
+  const [datePreset, setDatePreset] = React.useState<DatePreset>("all")
+  const [dateRange, setDateRange] = React.useState<DayRange | null>(null)
   const [viewMode, setViewMode] = React.useState<"table" | "kanban" | "grid">("table")
   // The board's columns already split tasks by status, so the status filter is off there
   const isBoard = viewMode === "kanban"
@@ -128,8 +132,9 @@ export function DashboardPage() {
 
     const matchesStatus = activeStatus === "all" || task.status === activeStatus
     const matchesHighlights = !highlightsOnly || task.isCareerHighlight
+    const matchesDate = !dateRange || isActiveInRange(task, dateRange)
 
-    return matchesSearch && matchesStatus && matchesHighlights
+    return matchesSearch && matchesStatus && matchesHighlights && matchesDate
   })
 
   // Initial SSR mount & Clerk load guard
@@ -634,23 +639,33 @@ export function DashboardPage() {
 
       {/* 3. Filter, Search & View Controls Bar */}
       <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-2 sm:flex-row sm:items-center sm:justify-between">
-        {/* Search bar */}
-        <div className="relative w-full sm:w-72">
-          <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search contribution, project..."
-            className="h-9 pl-9 text-xs"
+        {/* Search bar and date range */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative w-full sm:w-72">
+            <Search className="text-muted-foreground absolute top-2.5 left-3 h-4 w-4" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search contribution, project..."
+              className="h-9 pl-9 text-xs"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <DateRangeFilter
+            preset={datePreset}
+            range={dateRange}
+            onChange={(preset, range) => {
+              setDatePreset(preset)
+              setDateRange(range)
+            }}
           />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="text-muted-foreground hover:text-foreground absolute top-2.5 right-2.5 text-xs"
-            >
-              ✕
-            </button>
-          )}
         </div>
 
         {/* Status Filter Segmented Control */}
@@ -749,7 +764,7 @@ export function DashboardPage() {
       {/* 4. Tasks View Renders with smooth animation */}
       <AnimatePresence mode="wait">
         <motion.div
-          key={`${viewMode}-${activeStatus}-${highlightsOnly}`}
+          key={`${viewMode}-${activeStatus}-${highlightsOnly}-${datePreset}`}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
