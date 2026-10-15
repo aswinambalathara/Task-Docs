@@ -1,14 +1,15 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
+import { clerkMiddleware } from "@clerk/nextjs/server"
 
 import { safeRedirectUrl } from "@/lib/redirect"
 import { APP_URL, SITE_HOST } from "@/lib/site"
 
-const isAuthPage = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"])
+// /sign-in, /sign-up and their sub-paths
+const AUTH_PAGE = /^\/sign-(in|up)(\/|$)/
 
 const clerk = clerkMiddleware(async (auth, req) => {
   // Signed-in users have no use for the auth pages; send them on to where they were headed
-  if (isAuthPage(req) && (await auth()).userId) {
+  if (AUTH_PAGE.test(req.nextUrl.pathname) && (await auth()).userId) {
     const target = req.nextUrl.searchParams.get("redirect_url")
     return NextResponse.redirect(safeRedirectUrl(target, req.url))
   }
