@@ -1,11 +1,18 @@
 from datetime import UTC, datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from beanie import PydanticObjectId
 
 from app.core.logger import logger
+from app.core.timezones import get_zone, is_valid_timezone
+from app.models.integration import Integration
 from app.models.task import Contribution, Task
 from app.schemas.task import TaskCreate, TaskPriority, TaskStatus, TaskType, TaskUpdate
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def _schedule_realtime_sync_if_done(user_id: str, task: Task) -> None:
@@ -34,14 +41,24 @@ class TaskService:
         """
         Creates a new impact task scoped to the user with optional initial contribution.
         """
+        now = datetime.now(UTC)
+        work_date = _aware(payload.date) if payload.date else now
+        # A backdated task's first note and completion belong to its work date, not to now
+        happened_at = min(work_date, now)
+
         contributions = []
         if payload.initial_contribution:
-            contributions.append(Contribution(note=payload.initial_contribution))
+            contributions.append(
+                Contribution(note=payload.initial_contribution, logged_at=happened_at)
+            )
 
-        now = datetime.now(UTC)
+        completed_at = None
+        if payload.status == "done":
+            completed_at = _aware(payload.completed_at) if payload.completed_at else happened_at
+
         task = Task(
             user_id=user_id,
-            date=payload.date or now,
+            date=work_date,
             title=payload.title,
             description=payload.description,
             status=payload.status,
@@ -56,6 +73,7 @@ class TaskService:
             tags=payload.tags,
             contributions=contributions,
             custom_fields=payload.custom_fields,
+            completed_at=completed_at,
             created_at=now,
             updated_at=now,
         )
@@ -72,13 +90,19 @@ class TaskService:
         project_filter: str | None = None,
         is_career_highlight_filter: bool | None = None,
         search: str | None = None,
+        active_from: datetime | None = None,
+        active_to: datetime | None = None,
         page: int = 1,
         limit: int = 50,
     ) -> tuple[list[Task], int]:
         """
         Retrieves paginated tasks with filtering and search. Returns (items, total_count).
+        active_from/active_to ([start, end), UTC) keep tasks with activity in that window: their
+        work date, completion or a logged contribution. Creation and edits don't count, so a
+        backdated task belongs to its work date and a title fix isn't progress.
         """
         query: dict[str, Any] = {"user_id": user_id}
+        conditions: list[dict[str, Any]] = []
 
         # 1. Exact-match filters (ignore None and "all")
         filter_map = {
@@ -98,15 +122,39 @@ class TaskService:
         # 3. Dynamic multi-field search across textual attributes
         if search:
             search_fields = ["title", "description", "outcome", "evidence", "project", "area"]
-            query["$or"] = [
+            conditions.append({"$or": [
                 *[{field: {"$regex": search, "$options": "i"}} for field in search_fields],
                 {"tags": {"$elemMatch": {"$regex": search, "$options": "i"}}},
-            ]
+            ]})
+
+        # 4. Activity window
+        if active_from or active_to:
+            window: dict[str, datetime] = {}
+            if active_from:
+                window["$gte"] = active_from
+            if active_to:
+                window["$lt"] = active_to
+            conditions.append({"$or": [
+                {"date": window},
+                {"completed_at": window},
+                {"contributions": {"$elemMatch": {"logged_at": window}}},
+            ]})
+
+        if conditions:
+            query["$and"] = conditions
 
         total = await Task.find(query).count()
         skip = (page - 1) * limit
         tasks = await Task.find(query).sort("-created_at").skip(skip).limit(limit).to_list()
         return tasks, total
+
+    @staticmethod
+    async def user_zone(user_id: str, override: str | None = None) -> ZoneInfo:
+        """Zone for date filters: a valid override, else the Docs integration's, else UTC."""
+        if override and is_valid_timezone(override):
+            return ZoneInfo(override)
+        integration = await Integration.find_one({"user_id": user_id, "provider": "google_docs"})
+        return get_zone(integration.cadence.timezone if integration else None)
 
     @staticmethod
     async def get_task_by_id(task_id: str, user_id: str) -> Task | None:
@@ -129,6 +177,7 @@ class TaskService:
         if not task:
             return None
 
+        was_done = task.status == "done"
         update_data = payload.model_dump(
             exclude_unset=True, exclude={"contribution_note", "synced_to_docs"}
         )
@@ -136,6 +185,12 @@ class TaskService:
             if field == "is_career_highlight" and value is None:
                 continue
             setattr(task, field, value)
+
+        # completed_at tracks the latest finish: set when the task becomes done, cleared if reopened
+        if task.status != "done":
+            task.completed_at = None
+        elif (not was_done and "completed_at" not in update_data) or task.completed_at is None:
+            task.completed_at = datetime.now(UTC)
 
         if payload.contribution_note:
             task.contributions.append(Contribution(note=payload.contribution_note))
@@ -217,6 +272,5 @@ class TaskService:
             query: dict[str, Any] = {"_id": {"$in": obj_ids}, "user_id": user_id}
             if unchanged_since is not None:
                 query["updated_at"] = {"$lte": unchanged_since}
-            await Task.find(query).update_many(
-                {"$set": {"synced_to_docs": True, "updated_at": datetime.now(UTC)}}
-            )
+            # updated_at is left alone: syncing isn't an edit, and the activity filter relies on it
+            await Task.find(query).update_many({"$set": {"synced_to_docs": True}})

@@ -42,6 +42,9 @@ class TaskCreate(BaseModel):
     is_career_highlight: bool = Field(False, description="Flag for review cycles and brag sheets")
     tags: list[str] = Field(default_factory=list, description="Categorization tags")
     initial_contribution: str | None = Field(None, description="Optional starting work note")
+    completed_at: datetime | None = Field(
+        None, description="When a task created as done was finished; defaults to its date"
+    )
     custom_fields: dict[str, Any] = Field(
         default_factory=dict, description="Forward-compatible dynamic fields"
     )
@@ -61,6 +64,9 @@ class TaskUpdate(BaseModel):
     evidence: str | None = None
     is_career_highlight: bool | None = None
     synced_to_docs: bool | None = None
+    completed_at: datetime | None = Field(
+        None, description="When the task was finished; defaults to now when it becomes done"
+    )
     tags: list[str] | None = None
     contribution_note: str | None = Field(
         None, description="Append a new contribution log during update"
@@ -86,6 +92,7 @@ class TaskResponse(BaseModel):
     contributions: list[ContributionResponse] = Field(default_factory=list)
     synced_to_docs: bool = False
     tags: list[str] = Field(default_factory=list)
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     custom_fields: dict[str, Any] = Field(default_factory=dict)

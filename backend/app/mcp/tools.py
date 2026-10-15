@@ -4,6 +4,7 @@ Contains MCP tool implementations for engineering task management,
 contribution logging, impact querying, and Google Docs synchronization.
 """
 
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from loguru import logger
@@ -17,6 +18,7 @@ from app.core.constants import (
     OUTCOME_MAX_CHARS,
     DeveloperTaskType,
 )
+from app.core.timezones import day_timestamp, local_day_range
 from app.mcp import formatting
 from app.mcp.context import get_current_mcp_user_id
 from app.schemas.task import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
@@ -105,6 +107,7 @@ async def add_task(
     description: DescriptionArg = None,
     requested_by: str | None = None,
     is_career_highlight: bool = False,
+    date: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """
@@ -124,9 +127,16 @@ async def add_task(
         description: Optional full story (max 2000 chars): root cause, approach, details.
         requested_by: Requesting stakeholder, ticket ref, or "Self-initiated".
         is_career_highlight: True if this achievement is review-cycle worthy.
+        date: Day the work happened: YYYY-MM-DD, "today" or "yesterday" (default: today). Set it
+            when logging earlier work, so the task counts for that day and not the day it's logged.
     """
     try:
         user_id = get_current_mcp_user_id()
+    except ValueError as e:
+        return f"Error: {e}"
+
+    try:
+        work_date = day_timestamp(date, await TaskService.user_zone(user_id)) if date else None
     except ValueError as e:
         return f"Error: {e}"
 
@@ -163,13 +173,16 @@ async def add_task(
         description=description,
         requested_by=requested_by,
         is_career_highlight=is_career_highlight,
+        date=work_date,
     )
 
     try:
         task = await TaskService.create_task(user_id=user_id, payload=payload)
         logger.info(f"MCP tool add_task created task {task.id} for user {user_id}")
+        zone = await TaskService.user_zone(user_id)
         return await formatting.with_health_note(
-            user_id, f"✅ **Task Created Successfully!**\n\n{formatting.format_task_summary(task)}"
+            user_id,
+            f"✅ **Task Created Successfully!**\n\n{formatting.format_task_summary(task, zone)}",
         )
     except Exception as exc:
         logger.error(f"MCP add_task error: {exc}")
@@ -184,6 +197,8 @@ async def update_task(
     description: DescriptionArg = None,
     contribution_note: str | None = None,
     is_career_highlight: bool | None = None,
+    date: str | None = None,
+    completed_on: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """
@@ -199,9 +214,19 @@ async def update_task(
         description: Full story (max 2000 chars); replaces the task's current description.
         contribution_note: Optional note to append to the task's engineering log history.
         is_career_highlight: Set to true if this task should be flagged for career appraisal.
+        date: Corrects the day the work happened: YYYY-MM-DD, "today" or "yesterday".
+        completed_on: Day the task was finished, same formats, when marking it done later than
+            that (default: now). Only kept while the task is done.
     """
     try:
         user_id = get_current_mcp_user_id()
+    except ValueError as e:
+        return f"Error: {e}"
+
+    try:
+        zone = await TaskService.user_zone(user_id)
+        work_date = day_timestamp(date, zone) if date else None
+        completed_at = day_timestamp(completed_on, zone) if completed_on else None
     except ValueError as e:
         return f"Error: {e}"
 
@@ -227,6 +252,11 @@ async def update_task(
         update_kwargs["contribution_note"] = contribution_note
     if is_career_highlight is not None:
         update_kwargs["is_career_highlight"] = is_career_highlight
+    now = datetime.now(UTC)
+    if date:
+        update_kwargs["date"] = work_date or now
+    if completed_on:
+        update_kwargs["completed_at"] = completed_at or now
 
     payload = TaskUpdate(**update_kwargs)
 
@@ -238,7 +268,7 @@ async def update_task(
         logger.info(f"MCP tool update_task updated task {task_id} for user {user_id}")
         return await formatting.with_health_note(
             user_id,
-            f"✅ **Task `{task_id}` Updated Successfully!**\n\n{formatting.format_task_summary(task)}",
+            f"✅ **Task `{task_id}` Updated Successfully!**\n\n{formatting.format_task_summary(task, zone)}",
         )
     except Exception as exc:
         logger.error(f"MCP update_task error: {exc}")
@@ -249,16 +279,26 @@ async def get_tasks(
     status: str | None = None,
     project: str | None = None,
     is_career_highlight: bool | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     limit: int = 20,
     ctx: Context | None = None,
 ) -> str:
     """
-    Retrieves engineering tasks from Tethr filtered by status, project, or career highlight.
+    Retrieves engineering tasks from Tethr filtered by status, project, career highlight or date.
+
+    Dates are days in the user's time zone. A task matches a date range when its work date,
+    completion or a logged contribution falls in it (not creation or edits, so work logged late
+    with an earlier `date` counts for that earlier day). With a date range, each task also shows
+    its description and the contribution notes logged in that range, which is what a daily or
+    weekly progress update needs (e.g. date_from="today").
 
     Args:
         status: Filter by status ('todo', 'in_progress', 'done', 'blocked', 'cancelled', or None for all).
         project: Filter by project name (e.g. 'Tethr', 'General').
         is_career_highlight: If True, only returns review-worthy career highlight tasks.
+        date_from: First day with activity: YYYY-MM-DD, "today" or "yesterday". Open-ended if date_to is unset.
+        date_to: Last day with activity, inclusive, same formats.
         limit: Maximum number of tasks to return (default: 20).
     """
     try:
@@ -271,13 +311,26 @@ async def get_tasks(
         norm_status = status  # type: ignore
 
     try:
+        zone = await TaskService.user_zone(user_id)
+        try:
+            active_from, active_to = local_day_range(date_from, date_to, zone)
+        except ValueError as e:
+            return f"Error: {e}"
+        dated = bool(date_from or date_to)
+
         tasks, total = await TaskService.list_tasks(
             user_id=user_id,
             status_filter=norm_status,
             project_filter=project,
             is_career_highlight_filter=is_career_highlight,
+            active_from=active_from,
+            active_to=active_to,
             limit=limit,
         )
+
+        range_desc = ""
+        if dated:
+            range_desc = f"active {date_from or '…'} to {date_to or '…'} ({zone.key})"
 
         if not tasks:
             filter_desc = []
@@ -287,13 +340,20 @@ async def get_tasks(
                 filter_desc.append(f"project='{project}'")
             if is_career_highlight is not None:
                 filter_desc.append(f"is_career_highlight={is_career_highlight}")
+            if range_desc:
+                filter_desc.append(range_desc)
             filter_str = f" with filters ({', '.join(filter_desc)})" if filter_desc else ""
             return f"📋 No tasks found{filter_str} for user `{user_id}`."
 
-        header = f"### 📋 Tethr Tasks ({len(tasks)} of {total} total)\n"
-        items_text = "\n\n---\n\n".join([formatting.format_task_summary(t) for t in tasks])
+        window = (active_from, active_to) if dated else None
+        header = f"### 📋 Tethr Tasks ({len(tasks)} of {total} total)"
+        if range_desc:
+            header += f", {range_desc}"
+        items_text = "\n\n---\n\n".join(
+            [formatting.format_task_summary(t, zone, window) for t in tasks]
+        )
         note = await formatting.sync_health_note(user_id)
-        return f"{note}\n\n{header}\n{items_text}" if note else f"{header}\n{items_text}"
+        return f"{note}\n\n{header}\n\n{items_text}" if note else f"{header}\n\n{items_text}"
     except Exception as exc:
         logger.error(f"MCP get_tasks error: {exc}")
         return f"Error fetching tasks: {str(exc)}"

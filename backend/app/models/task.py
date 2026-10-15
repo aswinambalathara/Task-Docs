@@ -48,6 +48,7 @@ class Task(Document):
     contributions: list[Contribution] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     synced_to_docs: bool = False
+    completed_at: datetime | None = Field(None, description="When the task was last marked done")
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -63,4 +64,5 @@ class Task(Document):
             [("user_id", pymongo.ASCENDING), ("project", pymongo.ASCENDING)],
             [("user_id", pymongo.ASCENDING), ("date", pymongo.DESCENDING)],
             [("user_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)],
+            [("user_id", pymongo.ASCENDING), ("completed_at", pymongo.DESCENDING)],
         ]

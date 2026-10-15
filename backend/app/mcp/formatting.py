@@ -4,7 +4,9 @@ Markdown text for MCP tool results: task cards, sync-health warnings and summary
 
 import calendar
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
+from app.core.timezones import to_local
 from app.models.integration import Integration
 from app.models.task import Task
 from app.services import docs
@@ -100,13 +102,33 @@ async def summary_status_note(user_id: str) -> str:
     return "**Summaries:**\n" + "\n".join([line("weekly"), line("monthly")])
 
 
-def format_task_summary(task: Task) -> str:
+def _naive_utc(dt: datetime) -> datetime:
+    return dt.astimezone(UTC).replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def format_task_summary(
+    task: Task,
+    zone: ZoneInfo | None = None,
+    window: tuple[datetime | None, datetime | None] | None = None,
+) -> str:
+    """
+    A task card. With a window (naive UTC [start, end), from a date filter) it also shows the
+    description and every contribution logged in that window, for progress reports.
+    """
+    zone = zone or ZoneInfo("UTC")
+
+    def stamp(dt: datetime) -> str:
+        return to_local(dt, zone).strftime("%Y-%m-%d %H:%M")
+
     highlight_badge = " ⭐ [CAREER HIGHLIGHT]" if task.is_career_highlight else ""
     lines = [
         f"**Task ID:** `{task.id}`{highlight_badge}",
         f"- **Title:** {task.title}",
         f"- **Project:** {task.project} | **Area:** {task.area or '—'} | **Type:** {task.type}",
         f"- **Status:** `{task.status}` | **Priority:** `{task.priority}`",
+        f"- **Work date:** {to_local(task.date, zone):%Y-%m-%d} | **Completed:** "
+        f"{stamp(task.completed_at) if task.completed_at else '—'} | **Logged:** "
+        f"{stamp(task.created_at)} ({zone.key})",
     ]
     if task.requested_by:
         lines.append(f"- **Requested By:** {task.requested_by}")
@@ -114,9 +136,22 @@ def format_task_summary(task: Task) -> str:
         lines.append(f"- **Outcome:** {task.outcome}")
     if task.evidence:
         lines.append(f"- **Evidence:** {task.evidence}")
-    if task.contributions:
+    if window is not None:
+        if task.description:
+            description = task.description.replace("\n", "\n  ")
+            lines.append(f"- **Description:** {description}")
+        start, end = window
+        in_window = [
+            c
+            for c in task.contributions
+            if (start is None or _naive_utc(c.logged_at) >= start)
+            and (end is None or _naive_utc(c.logged_at) < end)
+        ]
+        lines.append(f"- **Contributions in range:** {len(in_window)} of {len(task.contributions)}")
+        lines.extend(f"  - {stamp(c.logged_at)}: {c.note}" for c in in_window)
+    elif task.contributions:
         lines.append(f"- **Contributions Logged:** {len(task.contributions)} entry(ies)")
         latest = task.contributions[-1]
-        lines.append(f"  - *Latest:* {latest.note} ({latest.logged_at.strftime('%Y-%m-%d %H:%M')})")
+        lines.append(f"  - *Latest:* {latest.note} ({stamp(latest.logged_at)})")
     lines.append(f"- **Synced to Google Docs:** {'Yes' if task.synced_to_docs else 'No'}")
     return "\n".join(lines)

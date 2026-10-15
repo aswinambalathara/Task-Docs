@@ -3,6 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.security import AuthenticatedUser, get_current_user
+from app.core.timezones import local_day_range
 from app.models.task import Task
 from app.schemas.task import (
     ContributionCreate,
@@ -41,6 +42,7 @@ def _to_response(task: Task) -> TaskResponse:
         ],
         synced_to_docs=task.synced_to_docs,
         tags=task.tags,
+        completed_at=task.completed_at,
         created_at=task.created_at,
         updated_at=task.updated_at,
         custom_fields=task.custom_fields,
@@ -68,13 +70,29 @@ async def list_tasks(
     search: str | None = Query(
         None, description="Search across title, outcome, evidence, project, and tags"
     ),
+    date_from: str | None = Query(
+        None, description='First day with activity: YYYY-MM-DD, "today" or "yesterday"'
+    ),
+    date_to: str | None = Query(None, description="Last day with activity, inclusive"),
+    tz: str | None = Query(
+        None, description="IANA time zone for the dates; defaults to the Docs integration's"
+    ),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> TaskListResponse:
     """
-    Lists tasks owned by the authenticated user with status, project, highlight, and search filters.
+    Lists tasks owned by the authenticated user with status, project, highlight, search and
+    date filters. Dates keep tasks with any activity on those days in the user's time zone.
     """
+    active_from = active_to = None
+    if date_from or date_to:
+        zone = await TaskService.user_zone(current_user.id, tz)
+        try:
+            active_from, active_to = local_day_range(date_from, date_to, zone)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     tasks, total = await TaskService.list_tasks(
         user_id=current_user.id,
         status_filter=status_filter,
@@ -83,6 +101,8 @@ async def list_tasks(
         project_filter=project_filter,
         is_career_highlight_filter=is_career_highlight,
         search=search,
+        active_from=active_from,
+        active_to=active_to,
         page=page,
         limit=limit,
     )
