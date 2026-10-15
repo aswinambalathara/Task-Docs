@@ -25,6 +25,8 @@ mcp = FastMCP(
         "root cause, approach and other details in `description` or a `contribution_note`. "
         "Over-long values are rejected with instructions to shorten them."
     ),
+    # No in-memory sessions, so deploys don't break connected editors
+    stateless_http=True,
 )
 
 # Ensure local development hosts and test servers are allowed in transport security

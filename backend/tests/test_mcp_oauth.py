@@ -179,3 +179,17 @@ async def _assert_transport(client):
             )
             assert resp.status_code == 200, path
             assert "protocolVersion" in resp.text
+
+        # A session ID from before a deploy must not get a 404
+        resp = await client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            headers={
+                **accept,
+                "Authorization": "Bearer mock_user_alice",
+                "Mcp-Session-Id": "session-from-before-the-deploy",
+                "Mcp-Protocol-Version": "2025-03-26",
+            },
+        )
+        assert resp.status_code == 200
+        assert "get_tasks" in resp.text
