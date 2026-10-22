@@ -18,8 +18,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.models.integration import SummaryMeta
-from app.services.ai.prompts import SUMMARY_FORMAT_VERSION
 from app.models.task import Task
+from app.services.ai.prompts import SUMMARY_FORMAT_VERSION
 
 
 def month_calendar_weeks(year: int, month: int) -> list[dict[str, Any]]:
@@ -164,9 +164,11 @@ def stale_summary_keys(
         if current is None:
             continue
         meta = summary_meta.get(key)
-        if meta is None or meta.format_version < SUMMARY_FORMAT_VERSION:
-            stale.append(key)
-        elif meta.fingerprint != fingerprint(current):
+        if (
+            meta is None
+            or meta.format_version < SUMMARY_FORMAT_VERSION
+            or meta.fingerprint != fingerprint(current)
+        ):
             stale.append(key)
 
     def sort_key(k: str) -> tuple[int, int, int]:

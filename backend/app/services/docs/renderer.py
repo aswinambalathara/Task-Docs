@@ -19,8 +19,106 @@ from app.services.ai.prompts import MONTHLY_SECTIONS, WEEKLY_SECTIONS
 from app.services.ai.summarizer import AIService
 from app.services.docs import periods
 
-# Sub-headings inside summaries, bolded like the other section titles
+# Sub-headings inside summaries, styled as section headings
 SUMMARY_HEADINGS = {*WEEKLY_SECTIONS, *MONTHLY_SECTIONS, "Projects", "Career highlights"}
+BULLET_PREFIX = "• "
+
+DARK_TEXT = {"red": 0.12, "green": 0.16, "blue": 0.24}
+ACCENT_TEXT = {"red": 0.11, "green": 0.36, "blue": 0.6}
+SUMMARY_TITLE_STYLE = {"size": 13, "color": DARK_TEXT, "above": 16, "below": 4}
+SUMMARY_SECTION_STYLE = {"size": 11, "color": ACCENT_TEXT, "above": 10, "below": 2}
+
+
+def compact_summary(text: str) -> str:
+    """Drops blank lines; heading spacing separates the sections instead."""
+    return "\n".join(line for line in text.splitlines() if line.strip())
+
+
+def is_summary_title(p_text: str) -> bool:
+    return (
+        p_text.startswith("Weekly Summary — ")
+        or p_text.endswith(" Monthly Summary")
+        or p_text.endswith(" Annual Engineering Summary")
+    )
+
+
+def heading_requests(start: int, end: int, style: dict[str, Any]) -> list[dict[str, Any]]:
+    """Bold, sized, coloured heading text, spaced and kept on the same page as what follows."""
+    rng = {"startIndex": start, "endIndex": end - 1}
+    return [
+        {
+            "updateTextStyle": {
+                "range": rng,
+                "textStyle": {
+                    "bold": True,
+                    "fontSize": {"magnitude": style["size"], "unit": "PT"},
+                    "foregroundColor": {"color": {"rgbColor": style["color"]}},
+                },
+                "fields": "bold,fontSize,foregroundColor",
+            }
+        },
+        {
+            "updateParagraphStyle": {
+                "range": rng,
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": style["above"], "unit": "PT"},
+                    "spaceBelow": {"magnitude": style["below"], "unit": "PT"},
+                    "keepWithNext": True,
+                },
+                "fields": "spaceAbove,spaceBelow,keepWithNext",
+            }
+        },
+    ]
+
+
+def bullet_requests(paras: list[tuple[int, int]]) -> list[dict[str, Any]]:
+    """
+    Native bullets for "• " paragraphs given as (start, end): one list per run of adjacent
+    paragraphs, then the typed prefixes are deleted from the last one back so indices hold.
+    """
+    groups: list[list[tuple[int, int]]] = []
+    for para in sorted(paras):
+        if groups and groups[-1][-1][1] == para[0]:
+            groups[-1].append(para)
+        else:
+            groups.append([para])
+    requests: list[dict[str, Any]] = [
+        {
+            "createParagraphBullets": {
+                "range": {"startIndex": g[0][0], "endIndex": g[-1][1] - 1},
+                "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
+            }
+        }
+        for g in groups
+    ]
+    requests += [
+        {
+            "deleteContentRange": {
+                "range": {"startIndex": start, "endIndex": start + _utf16_len(BULLET_PREFIX)}
+            }
+        }
+        for start, _ in sorted(paras, reverse=True)
+    ]
+    return requests
+
+
+def reset_paragraph_requests(start: int, end: int) -> list[dict[str, Any]]:
+    """Removes bullets and heading spacing from paragraphs in [start, end)."""
+    rng = {"startIndex": start, "endIndex": end}
+    return [
+        {"deleteParagraphBullets": {"range": rng}},
+        {
+            "updateParagraphStyle": {
+                "range": rng,
+                "paragraphStyle": {
+                    "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                    "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                    "keepWithNext": False,
+                },
+                "fields": "spaceAbove,spaceBelow,keepWithNext",
+            }
+        },
+    ]
 
 # Per-user render lock: two concurrent full re-renders would interleave their
 # delete/insert requests and corrupt the document. (Process-local.)
@@ -545,6 +643,13 @@ def render_structured_ledger_document(
                 documentId=document_id,
                 body={"requests": [{"deleteContentRange": {"range": {"startIndex": 1, "endIndex": end_idx}}}]},
             ).execute()
+        # The paragraph left behind keeps its old bullet and spacing, which new text would inherit
+        try:
+            service.documents().batchUpdate(
+                documentId=document_id, body={"requests": reset_paragraph_requests(1, 2)}
+            ).execute()
+        except Exception as reset_err:
+            logger.warning(f"Could not reset leftover paragraph style: {reset_err}")
 
     # Landscape page, so the 10-column daily table has room
     document_style = doc.get("documentStyle", {})
@@ -718,7 +823,7 @@ def render_structured_ledger_document(
 
                     week_summary_block = (
                         f"\nWeekly Summary — Week {w['week_num']}\n"
-                        f"{w_summary_content}\n\n"
+                        f"{compact_summary(w_summary_content)}\n\n"
                     )
                     service.documents().batchUpdate(
                         documentId=document_id,
@@ -751,7 +856,7 @@ def render_structured_ledger_document(
 
                 month_summary_block = (
                     f"{month_name} Monthly Summary\n"
-                    f"{m_intro}\n\n"
+                    f"{compact_summary(m_intro)}\n\n"
                     "Key Contributions\n"
                 )
                 service.documents().batchUpdate(
@@ -830,7 +935,7 @@ def render_structured_ledger_document(
             year_tasks = [t for month_tasks in tasks_by_year[year].values() for t in month_tasks]
             annual_summary = (
                 f"{year} Annual Engineering Summary\n"
-                f"{AIService.deterministic_yearly_summary(year_tasks, year)}\n\n"
+                f"{compact_summary(AIService.deterministic_yearly_summary(year_tasks, year))}\n\n"
             )
             service.documents().batchUpdate(
                 documentId=document_id,
@@ -838,6 +943,7 @@ def render_structured_ledger_document(
             ).execute()
 
     # 5. Apply Typography & Heading Formatting
+    bullet_paras: list[tuple[int, int]] = []
     try:
         doc_styled = service.documents().get(documentId=document_id).execute()
         style_reqs = []
@@ -851,7 +957,17 @@ def render_structured_ledger_document(
                 if not p_text or not p_start or not p_end or p_end <= p_start + 1:
                     continue
 
-                if p_text == "Tethr — Task Documentation":
+                raw = "".join(
+                    tr.get("textRun", {}).get("content", "") for tr in el["paragraph"].get("elements", [])
+                )
+                if raw.startswith(BULLET_PREFIX):
+                    bullet_paras.append((p_start, p_end))
+                    continue
+                if is_summary_title(p_text):
+                    style_reqs += heading_requests(p_start, p_end, SUMMARY_TITLE_STYLE)
+                elif p_text in SUMMARY_HEADINGS or p_text == "Key Contributions":
+                    style_reqs += heading_requests(p_start, p_end, SUMMARY_SECTION_STYLE)
+                elif p_text == "Tethr — Task Documentation":
                     style_reqs.append({
                         "updateTextStyle": {
                             "range": {"startIndex": p_start, "endIndex": p_end - 1},
@@ -867,34 +983,14 @@ def render_structured_ledger_document(
                             "fields": "bold,fontSize",
                         }
                     })
-                elif (
-                    "DAILY CONTRIBUTION LOG" in p_text
-                    or "Monthly Summary" in p_text
-                    or p_text.endswith("Annual Engineering Summary")
-                ):
+                elif "DAILY CONTRIBUTION LOG" in p_text:
                     style_reqs.append({
                         "updateTextStyle": {
                             "range": {"startIndex": p_start, "endIndex": p_end - 1},
                             "textStyle": {
                                 "bold": True,
                                 "fontSize": {"magnitude": 12, "unit": "PT"},
-                                "foregroundColor": {"color": {"rgbColor": {"red": 0.12, "green": 0.16, "blue": 0.24}}},
-                            },
-                            "fields": "bold,fontSize,foregroundColor",
-                        }
-                    })
-                elif (
-                    "Weekly Summary" in p_text
-                    or p_text == "Key Contributions"
-                    or p_text in SUMMARY_HEADINGS
-                ):
-                    style_reqs.append({
-                        "updateTextStyle": {
-                            "range": {"startIndex": p_start, "endIndex": p_end - 1},
-                            "textStyle": {
-                                "bold": True,
-                                "fontSize": {"magnitude": 11, "unit": "PT"},
-                                "foregroundColor": {"color": {"rgbColor": {"red": 0.12, "green": 0.16, "blue": 0.24}}},
+                                "foregroundColor": {"color": {"rgbColor": DARK_TEXT}},
                             },
                             "fields": "bold,fontSize,foregroundColor",
                         }
@@ -904,6 +1000,15 @@ def render_structured_ledger_document(
             service.documents().batchUpdate(documentId=document_id, body={"requests": style_reqs}).execute()
     except Exception as style_err:
         logger.warning(f"Could not apply heading styles: {style_err}")
+
+    # 6. Turn "• " lines into native bullets (separate step: it shifts indices)
+    try:
+        if bullet_paras:
+            service.documents().batchUpdate(
+                documentId=document_id, body={"requests": bullet_requests(bullet_paras)}
+            ).execute()
+    except Exception as bullet_err:
+        logger.warning(f"Could not apply native bullets: {bullet_err}")
 
 
 def build_daily_contribution_log_table(tasks: list[Task]) -> str:

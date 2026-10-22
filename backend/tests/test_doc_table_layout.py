@@ -3,9 +3,12 @@ from app.models.task import Task
 from app.services.docs.renderer import (
     DAILY_TABLE_COLUMNS,
     DAILY_TABLE_FONT_PT,
+    bullet_requests,
+    compact_summary,
     daily_table_layout_requests,
     daily_table_row,
     doc_cell_text,
+    is_summary_title,
     landscape_request,
     landscape_table_width,
 )
@@ -101,3 +104,28 @@ def test_daily_table_row_shortens_free_text_and_labels_status():
     assert len(row[8]) <= DOC_CELL_MAX_CHARS and row[8].endswith("…")
     assert row[9] == "—"
     assert row[6] == "Self-initiated"
+
+
+def test_bullet_requests_group_adjacent_lines_and_delete_prefixes_back_to_front():
+    # Two adjacent bullets, then a heading at 30-40, then one more bullet
+    reqs = bullet_requests([(50, 60), (10, 20), (20, 30)])
+
+    creates = [r["createParagraphBullets"]["range"] for r in reqs if "createParagraphBullets" in r]
+    assert creates == [{"startIndex": 10, "endIndex": 29}, {"startIndex": 50, "endIndex": 59}]
+
+    # Bullets first (no index shift), then deletions from the end so earlier indices hold
+    deletes = [r["deleteContentRange"]["range"] for r in reqs if "deleteContentRange" in r]
+    assert reqs.index({"deleteContentRange": {"range": deletes[0]}}) == len(creates)
+    assert deletes == [
+        {"startIndex": 50, "endIndex": 52},
+        {"startIndex": 20, "endIndex": 22},
+        {"startIndex": 10, "endIndex": 12},
+    ]
+
+
+def test_summary_titles_and_compaction():
+    assert is_summary_title("Weekly Summary — Week 2")
+    assert is_summary_title("October Monthly Summary")
+    assert is_summary_title("2026 Annual Engineering Summary")
+    assert not is_summary_title("Shipped")
+    assert compact_summary("Shipped\n• A\n\n\nIn progress\n  \n• B") == "Shipped\n• A\nIn progress\n• B"

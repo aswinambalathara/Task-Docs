@@ -43,6 +43,30 @@ def _label(task: Task, show_project: bool) -> str:
     return f"{task.title} ({task.project})" if show_project else task.title
 
 
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def _glance(tasks: list[Task], period: str) -> str:
+    """One-line opener, e.g. 'Shipped 2 of 5 tasks this week; 3 still in progress.'"""
+    counts = Counter(t.status for t in tasks)
+    line = f"Shipped {counts['done']} of {_plural(len(tasks), 'task')} this {period}"
+    rest = []
+    if counts["in_progress"]:
+        rest.append(f"{counts['in_progress']} still in progress")
+    if counts["todo"]:
+        rest.append(f"{counts['todo']} planned")
+    if counts["blocked"]:
+        rest.append(f"{counts['blocked']} blocked")
+    if rest:
+        line += "; " + ", ".join(rest)
+    # "General" is only the default project name, so it says nothing
+    projects = [p for p in _projects(tasks) if p != "General"]
+    if projects:
+        line += f". Projects: {', '.join(projects)}"
+    return line + "."
+
+
 class AIService:
     """
     Writes weekly summaries and monthly dossiers with Google Gemini, falling back to a
@@ -116,7 +140,7 @@ class AIService:
 
         lines = [
             "Week at a glance",
-            f"{len(tasks)} contribution(s) logged on {', '.join(projects) or 'General'}.",
+            _glance(tasks, "week"),
             "",
             "Shipped",
             *_bullets(titles("done")),
@@ -157,7 +181,7 @@ class AIService:
 
         lines = [
             "Month at a glance",
-            f"{len(tasks)} contribution(s) logged on {', '.join(projects) or 'General'}.",
+            _glance(tasks, "month"),
             "",
             "Highlights",
             *_bullets(highlights, limit=6),
@@ -166,7 +190,7 @@ class AIService:
             *_bullets(carried),
             "",
             "By the numbers",
-            f"{cls.totals_line(tasks)} · projects: {', '.join(projects) or 'General'}",
+            cls.totals_line(tasks),
         ]
         return "\n".join(lines)
 
@@ -177,10 +201,11 @@ class AIService:
             return f"No contributions logged in {year}."
 
         months = len({t.date.month for t in tasks})
+        done = sum(1 for t in tasks if t.status == "done")
         per_project = Counter(t.project or "General" for t in tasks)
         done_per_project = Counter(t.project or "General" for t in tasks if t.status == "done")
         project_lines = [
-            f"{name}: {count} contribution(s), {done_per_project[name]} done"
+            f"{name}: {done_per_project[name]} of {_plural(count, 'task')} done"
             for name, count in per_project.most_common()
         ]
         starred = [
@@ -190,7 +215,7 @@ class AIService:
         ]
 
         lines = [
-            f"{len(tasks)} contribution(s) logged across {months} month(s) in {year}.",
+            f"Shipped {done} of {_plural(len(tasks), 'task')} across {_plural(months, 'month')} in {year}.",
             "",
             "Projects",
             *_bullets(project_lines),

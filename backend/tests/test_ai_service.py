@@ -38,6 +38,10 @@ def test_deterministic_weekly_summary():
 
     summary = AIService.deterministic_weekly_summary(tasks)
     sections = summary.split("\n\n")
+    assert sections[0] == (
+        "Week at a glance\nShipped 1 of 3 tasks this week; 1 still in progress, 1 planned. "
+        "Projects: Chordian."
+    )
     assert sections[1] == "Shipped\n• Fixed CoreSignal API parameter issue"
     assert sections[2] == "In progress\n• Add Log Rotation"
     assert sections[3] == "Up next\n• Fix flaky login"
@@ -50,6 +54,8 @@ def test_deterministic_weekly_summary():
 def test_deterministic_weekly_summary_truncates_long_lists():
     tasks = [Task(user_id="u", title=f"Task {i}", status="done") for i in range(12)]
     summary = AIService.deterministic_weekly_summary(tasks)
+    # Only the default "General" project: no project list
+    assert "Week at a glance\nShipped 12 of 12 tasks this week.\n" in summary
     assert "• Task 7" in summary
     assert "• Task 8" not in summary
     assert "• …and 4 more" in summary
@@ -84,7 +90,7 @@ def test_deterministic_monthly_dossier():
         in dossier
     )
     assert "Carried into next month\n• Search revamp (in progress)" in dossier
-    assert "projects: Chordian" in dossier
+    assert "Shipped 2 of 3 tasks this month; 1 still in progress. Projects: Chordian." in dossier
     assert "Learning" not in dossier
 
 
@@ -102,8 +108,8 @@ def test_deterministic_yearly_summary():
         ),
     ]
     summary = AIService.deterministic_yearly_summary(tasks, 2026)
-    assert summary.startswith("3 contribution(s) logged across 3 month(s) in 2026.")
-    assert "• Tethr: 2 contribution(s), 1 done\n• Chordian: 1 contribution(s), 1 done" in summary
+    assert summary.startswith("Shipped 2 of 3 tasks across 3 months in 2026.")
+    assert "• Tethr: 1 of 2 tasks done\n• Chordian: 1 of 1 task done" in summary
     assert "Career highlights\n• Launch (Jun)" in summary
 
 
