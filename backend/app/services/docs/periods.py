@@ -8,7 +8,7 @@ helpers, so a preview is written about exactly the tasks the synced summary cove
 
 Each cached summary stores a fingerprint of the task IDs it was written about. When tasks
 are added to or removed from that period, the fingerprint no longer matches and the
-summary is stale.
+summary is stale. A summary written in an older format (SUMMARY_FORMAT_VERSION) is stale too.
 """
 
 import calendar
@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.models.integration import SummaryMeta
+from app.services.ai.prompts import SUMMARY_FORMAT_VERSION
 from app.models.task import Task
 
 
@@ -153,13 +154,19 @@ def summary_state(
 def stale_summary_keys(
     cached_summaries: dict[str, str], summary_meta: dict[str, SummaryMeta], local_tasks: list[Task]
 ) -> list[str]:
-    """Cached summaries whose period's tasks changed since they were written, newest first."""
+    """
+    Cached summaries whose period's tasks changed since they were written, or that were
+    written in an older format, newest first.
+    """
     stale = []
-    for key, meta in summary_meta.items():
-        if key not in cached_summaries:
-            continue
+    for key in cached_summaries:
         current = tasks_for_key(local_tasks, key)
-        if current is not None and meta.fingerprint != fingerprint(current):
+        if current is None:
+            continue
+        meta = summary_meta.get(key)
+        if meta is None or meta.format_version < SUMMARY_FORMAT_VERSION:
+            stale.append(key)
+        elif meta.fingerprint != fingerprint(current):
             stale.append(key)
 
     def sort_key(k: str) -> tuple[int, int, int]:

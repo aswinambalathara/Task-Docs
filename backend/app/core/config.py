@@ -40,8 +40,10 @@ class Settings(BaseSettings):
         "https://www.googleapis.com/auth/drive.file",
     ]
 
-    # Google Gemini AI Summarization (Gemini 2.0 Flash)
+    # Google Gemini AI Summarization
     GEMINI_API_KEY: str = ""
+    # Tried in order; Google retires pinned versions, so the last is a "-latest" alias
+    GEMINI_MODELS: list[str] = ["gemini-3.8-flash", "gemini-flash-lite-latest"]
     # Max AI previews per user per UTC day billed to GEMINI_API_KEY (BYOK requests are not counted)
     AI_PREVIEW_DAILY_LIMIT: int = 5
 

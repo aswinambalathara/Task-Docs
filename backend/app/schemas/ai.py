@@ -35,10 +35,10 @@ class SummarizeRequest(BaseModel):
 
 class SummarizeResponse(BaseModel):
     executive_summary: str = Field(
-        ..., description="Generated 2-sentence summary + 3 bullet points"
+        ..., description="Generated weekly summary or monthly dossier (plain text sections)"
     )
-    source: Literal["gemini-2.0-flash", "gemini-2.5-flash", "deterministic_fallback"] = Field(
-        ..., description="Engine used to generate the summary"
+    source: str = Field(
+        ..., description='Gemini model that wrote the summary, or "deterministic_fallback"'
     )
     task_count: int
     generated_at: datetime

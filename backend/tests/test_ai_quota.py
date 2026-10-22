@@ -24,7 +24,7 @@ def _fake_gemini(source: str):
 
 @pytest.mark.asyncio
 async def test_preview_limit_blocks_after_daily_quota(client: AsyncClient, monkeypatch):
-    monkeypatch.setattr(AIService, "generate_summary", _fake_gemini("gemini-2.0-flash"))
+    monkeypatch.setattr(AIService, "generate_summary", _fake_gemini("gemini-2.5-flash"))
     headers = {"Authorization": "Bearer mock_user_quota_limit"}
     task_id = await _create_task(client, headers)
     limit = settings.AI_PREVIEW_DAILY_LIMIT
@@ -70,7 +70,7 @@ async def test_fallback_summary_does_not_use_quota(client: AsyncClient, monkeypa
 
 @pytest.mark.asyncio
 async def test_own_api_key_is_not_metered(client: AsyncClient, monkeypatch):
-    monkeypatch.setattr(AIService, "generate_summary", _fake_gemini("gemini-2.0-flash"))
+    monkeypatch.setattr(AIService, "generate_summary", _fake_gemini("gemini-2.5-flash"))
     headers = {"Authorization": "Bearer mock_user_quota_byok"}
     task_id = await _create_task(client, headers)
 

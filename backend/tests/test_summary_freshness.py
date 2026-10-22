@@ -11,6 +11,7 @@ from app.core.security import encrypt_token
 from app.models.integration import GoogleTokens, Integration, SummaryMeta, SyncCadence
 from app.models.task import Task
 from app.services import docs
+from app.services.ai.prompts import SUMMARY_FORMAT_VERSION
 from app.services.ai.summarizer import AIService
 from app.services.docs import periods
 from app.services.scheduler import find_due_jobs, run_due_jobs
@@ -38,7 +39,7 @@ def _fake_google(summaries: list[tuple[str, list[str]]] | None = None):
     async def fake_summary(tasks, mode="weekly", **_):
         if summaries is not None:
             summaries.append((mode, sorted(t.title for t in tasks)))
-        return f"{mode} summary of {len(tasks)} task(s)", "gemini-2.0-flash"
+        return f"{mode} summary of {len(tasks)} task(s)", "gemini-2.5-flash"
 
     render = MagicMock()
     with (
@@ -63,9 +64,12 @@ def test_fingerprint_ignores_order_and_changes_with_task_set():
     assert periods.fingerprint([a, b]) != periods.fingerprint([a, b, c])
 
 
-def test_stale_keys_skip_legacy_summaries_and_sort_newest_first():
+def test_stale_keys_include_old_formats_and_sort_newest_first():
     def task(day: datetime) -> Task:
         return Task(id=PydanticObjectId(), user_id="u", title="t", date=day)
+
+    def meta_for(fp: str, version: int = SUMMARY_FORMAT_VERSION) -> SummaryMeta:
+        return SummaryMeta(fingerprint=fp, format_version=version)
 
     sep = task(datetime(2026, 9, 10))
     oct_w1 = task(datetime(2026, 10, 1))
@@ -73,17 +77,22 @@ def test_stale_keys_skip_legacy_summaries_and_sort_newest_first():
     tasks = [sep, oct_w1, oct_w2]
     meta = {
         # Written before oct_w2 existed
-        "monthly:2026:10": SummaryMeta(fingerprint=periods.fingerprint([oct_w1])),
-        "weekly:2026:10:2": SummaryMeta(fingerprint="outdated"),
-        "weekly:2026:10:1": SummaryMeta(fingerprint=periods.fingerprint([oct_w1])),
-        "weekly:2026:9:2": SummaryMeta(fingerprint="outdated"),
+        "monthly:2026:10": meta_for(periods.fingerprint([oct_w1])),
+        "weekly:2026:10:2": meta_for("outdated"),
+        "weekly:2026:10:1": meta_for(periods.fingerprint([oct_w1])),
+        # Same tasks, but written in an older format
+        "weekly:2026:9:2": meta_for(periods.fingerprint([sep]), version=0),
     }
-    cached = {k: "text" for k in meta} | {"weekly:2026:8:1": "legacy, no fingerprint"}
+    cached = {k: "text" for k in meta} | {
+        "weekly:2026:8:1": "legacy, no fingerprint",
+        "not-a-period": "ignored",
+    }
 
     assert periods.stale_summary_keys(cached, meta, tasks) == [
         "monthly:2026:10",
         "weekly:2026:10:2",
         "weekly:2026:9:2",
+        "weekly:2026:8:1",
     ]
 
 
@@ -150,6 +159,43 @@ async def test_refresh_rewrites_only_stale_summaries_and_renders_once():
     status = await docs.summaries.get_summary_status(user_id)
     assert status["weekly"]["stale"] is False
     assert status["monthly"]["stale"] is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_rewrites_summaries_saved_in_an_older_format():
+    user_id = "user_fresh_old_format"
+    await _make_integration(user_id)
+    await Task(user_id=user_id, title="Unchanged task").insert()
+
+    with _fake_google():
+        await docs.sync.sync_sprint_to_doc(
+            user_id=user_id, cadence_type="weekly_summary", force=True
+        )
+
+    # Simulate a summary saved before format versions existed, and one with no metadata at all
+    stored = await Integration.find_one({"user_id": user_id})
+    key = next(k for k in stored.cached_summaries if k.startswith("weekly:"))
+    stored.cached_summaries[key] = "old messy summary"
+    stored.summary_meta[key].format_version = 0
+    stored.cached_summaries["weekly:2026:1:1"] = "legacy summary"
+    await Task(
+        user_id=user_id, title="January task", date=datetime(2026, 1, 1, 12, tzinfo=UTC)
+    ).insert()
+    await stored.save()
+
+    seen: list[tuple[str, list[str]]] = []
+    with _fake_google(seen) as render:
+        assert await docs.summaries.refresh_stale_summaries(user_id) == 2
+        assert render.call_count == 1
+    assert sorted(seen) == [("weekly", ["January task"]), ("weekly", ["Unchanged task"])]
+
+    stored = await Integration.find_one({"user_id": user_id})
+    assert stored.cached_summaries[key] == "weekly summary of 1 task(s)"
+    assert stored.summary_meta[key].format_version == SUMMARY_FORMAT_VERSION
+
+    # Up to date now: the next night does nothing
+    with _fake_google() as render:
+        assert await docs.summaries.refresh_stale_summaries(user_id) == 0
 
 
 @pytest.mark.asyncio

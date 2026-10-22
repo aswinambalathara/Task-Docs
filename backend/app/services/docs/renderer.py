@@ -15,7 +15,12 @@ from loguru import logger
 from app.core.constants import DOC_CELL_MAX_CHARS
 from app.models.integration import Integration, SyncCadence
 from app.models.task import Task
+from app.services.ai.prompts import MONTHLY_SECTIONS, WEEKLY_SECTIONS
+from app.services.ai.summarizer import AIService
 from app.services.docs import periods
+
+# Sub-headings inside summaries, bolded like the other section titles
+SUMMARY_HEADINGS = {*WEEKLY_SECTIONS, *MONTHLY_SECTIONS, "Projects", "Career highlights"}
 
 # Per-user render lock: two concurrent full re-renders would interleave their
 # delete/insert requests and corrupt the document. (Process-local.)
@@ -519,9 +524,7 @@ def render_structured_ledger_document(
     - Weekly Summary — Week N (added on user preferred date or manual request)
     - MMMM Monthly Summary (added at end of month or manual request)
     - Key Contributions 2-column table (Area | Major Contribution)
-    - Month-End Learning / Improvements (bulleted)
-    - Overall Month Outcome
-    - Annual Engineering Summary at year boundaries
+    - Annual Engineering Summary at year boundaries (per-project counts and career highlights)
 
     Idempotent: Clears existing document body first so repeated syncs never duplicate tables.
     """
@@ -706,18 +709,12 @@ def render_structured_ledger_document(
                 if include_week_summary:
                     cur_doc = service.documents().get(documentId=document_id).execute()
                     cur_end = cur_doc["body"]["content"][-1]["endIndex"] - 1
-                    area_names = sorted(list({t.area for t in w_tasks if t.area}))
-                    area_summary = f" across {', '.join(area_names)}" if area_names else ""
-                    default_week_summary = (
-                        f"Focused on delivering high-impact engineering milestones{area_summary}. "
-                        f"Shipped {len(w_tasks)} contribution(s), resolved key issues, and validated functionality across portals."
-                    )
                     if weekly_summary and is_target_w:
                         w_summary_content = clean_markdown_for_docs(weekly_summary)
                     elif cached_summaries and week_key in cached_summaries:
                         w_summary_content = clean_markdown_for_docs(cached_summaries[week_key])
                     else:
-                        w_summary_content = default_week_summary
+                        w_summary_content = AIService.deterministic_weekly_summary(w_tasks)
 
                     week_summary_block = (
                         f"\nWeekly Summary — Week {w['week_num']}\n"
@@ -745,18 +742,12 @@ def render_structured_ledger_document(
             if include_month_summary:
                 cur_doc = service.documents().get(documentId=document_id).execute()
                 cur_end = cur_doc["body"]["content"][-1]["endIndex"] - 1
-                projects = sorted(list({t.project for t in m_tasks if t.project}))
-                project_str = ", ".join(projects) if projects else "core systems"
-                default_m_intro = (
-                    f"During {month_name}, the primary focus was on improving the {project_str} "
-                    "platform across key user journeys, backend reliability, and application quality."
-                )
                 if monthly_dossier and is_target_m:
                     m_intro = clean_markdown_for_docs(monthly_dossier)
                 elif cached_summaries and month_key in cached_summaries:
                     m_intro = clean_markdown_for_docs(cached_summaries[month_key])
                 else:
-                    m_intro = default_m_intro
+                    m_intro = AIService.deterministic_monthly_dossier(m_tasks)
 
                 month_summary_block = (
                     f"{month_name} Monthly Summary\n"
@@ -824,34 +815,22 @@ def render_structured_ledger_document(
                     })
                     service.documents().batchUpdate(documentId=document_id, body={"requests": kc_reqs}).execute()
 
-                # Insert Learnings and Overall Month Outcome
+                # Blank line after the table so the next section doesn't touch it
                 cur_doc = service.documents().get(documentId=document_id).execute()
                 cur_end = cur_doc["body"]["content"][-1]["endIndex"] - 1
-                learnings_and_outcome = (
-                    "\nMonth-End Learning / Improvements\n"
-                    "• Gained deeper understanding of maintaining shared UI behavior across multiple portals.\n"
-                    "• Improved ability to identify and resolve cross-component state management issues.\n"
-                    "• Strengthened debugging skills around responsive layouts and browser-specific behavior.\n"
-                    "• Improved understanding of frontend-backend interaction and API error handling.\n"
-                    "• Identified opportunities to further reduce duplicated UI logic through reusable components.\n"
-                    "• Established a structured approach for tracking daily contributions, weekly outcomes, and monthly impact.\n\n"
-                    "Overall Month Outcome\n"
-                    f"{month_name} focused on stabilizing and improving the existing {project_str} experience "
-                    "while laying the groundwork for more reusable, consistent, and maintainable application components.\n\n"
-                )
                 service.documents().batchUpdate(
                     documentId=document_id,
-                    body={"requests": [{"insertText": {"location": {"index": cur_end}, "text": learnings_and_outcome}}]}
+                    body={"requests": [{"insertText": {"location": {"index": cur_end}, "text": "\n"}}]}
                 ).execute()
 
         # End of Year Summary if year has concluded or today is Dec 31
         if year < today.year or (year == today.year and today.month == 12 and today.day >= 31):
             cur_doc = service.documents().get(documentId=document_id).execute()
             cur_end = cur_doc["body"]["content"][-1]["endIndex"] - 1
+            year_tasks = [t for month_tasks in tasks_by_year[year].values() for t in month_tasks]
             annual_summary = (
                 f"{year} Annual Engineering Summary\n"
-                f"Over the course of {year}, sustained focus was maintained on architecture stability, "
-                "end-to-end user experience, and continuous sprint delivery across the developer workspace.\n\n"
+                f"{AIService.deterministic_yearly_summary(year_tasks, year)}\n\n"
             )
             service.documents().batchUpdate(
                 documentId=document_id,
@@ -888,7 +867,11 @@ def render_structured_ledger_document(
                             "fields": "bold,fontSize",
                         }
                     })
-                elif "DAILY CONTRIBUTION LOG" in p_text or "Monthly Summary" in p_text:
+                elif (
+                    "DAILY CONTRIBUTION LOG" in p_text
+                    or "Monthly Summary" in p_text
+                    or p_text.endswith("Annual Engineering Summary")
+                ):
                     style_reqs.append({
                         "updateTextStyle": {
                             "range": {"startIndex": p_start, "endIndex": p_end - 1},
@@ -900,9 +883,11 @@ def render_structured_ledger_document(
                             "fields": "bold,fontSize,foregroundColor",
                         }
                     })
-                elif "Weekly Summary" in p_text or p_text in [
-                    "Key Contributions", "Month-End Learning / Improvements", "Overall Month Outcome",
-                ]:
+                elif (
+                    "Weekly Summary" in p_text
+                    or p_text == "Key Contributions"
+                    or p_text in SUMMARY_HEADINGS
+                ):
                     style_reqs.append({
                         "updateTextStyle": {
                             "range": {"startIndex": p_start, "endIndex": p_end - 1},

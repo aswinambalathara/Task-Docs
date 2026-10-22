@@ -56,6 +56,7 @@ class SummaryMeta(BaseModel):
     fingerprint: str  # periods.fingerprint() of the summarized task IDs
     task_count: int | None = None  # None when the text came from a client preview
     generated_at: datetime = Field(default_factory=utc_now)
+    format_version: int = 0  # prompts.SUMMARY_FORMAT_VERSION the text was written with
 
 
 class Integration(Document):

@@ -34,7 +34,7 @@ async def _make_integration(user_id: str, **cadence) -> Integration:
 @contextmanager
 def _fake_google(render_error: Exception | None = None):
     async def fake_summary(tasks, mode="weekly", **_):
-        return f"{mode} summary", "gemini-2.0-flash"
+        return f"{mode} summary", "gemini-2.5-flash"
 
     render = MagicMock(side_effect=render_error)
     with (

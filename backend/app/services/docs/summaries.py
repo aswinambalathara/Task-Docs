@@ -11,6 +11,7 @@ from loguru import logger
 from app.core.timezones import get_zone, to_local
 from app.models.integration import Integration, SummaryMeta
 from app.models.task import Task
+from app.services.ai.prompts import SUMMARY_FORMAT_VERSION
 from app.services.docs import oauth, periods, renderer
 
 
@@ -28,6 +29,7 @@ def store_summary(
         fingerprint=client_fingerprint or computed,
         # A previewed text may cover a different task set than the one at sync time
         task_count=len(source_tasks) if client_fingerprint in (None, computed) else None,
+        format_version=SUMMARY_FORMAT_VERSION,
     )
 
 
@@ -69,17 +71,18 @@ async def get_summary_status(user_id: str) -> dict[str, Any] | None:
 
 async def refresh_stale_summaries(user_id: str, max_refresh: int = 4) -> int:
     """
-    Rewrites cached summaries whose period gained or lost tasks since they were written,
-    then re-renders the document once. Run by the nightly scheduler job, so it never uses
-    the user's manual quota. Returns how many summaries were refreshed.
+    Rewrites cached summaries whose period gained or lost tasks since they were written, or
+    that were written in an older format, then re-renders the document once. Run by the
+    nightly scheduler job, so it never uses the user's manual quota. Returns how many
+    summaries were refreshed.
     """
     lock = renderer.render_locks.setdefault(user_id, asyncio.Lock())
     async with lock:
         integration = await Integration.find_one(
             {"user_id": user_id, "provider": "google_docs"}
         )
-        # Cheap exit for the common case: nothing was ever summarized with a fingerprint
-        if not integration or not integration.target_doc_id or not integration.summary_meta:
+        # Cheap exit for the common case: nothing was ever summarized
+        if not integration or not integration.target_doc_id or not integration.cached_summaries:
             return 0
 
         zone = get_zone(integration.cadence.timezone)
