@@ -36,6 +36,7 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { PageLoader } from "@/components/layout/page-loader"
 import { useOnboardingStatus } from "@/lib/onboarding"
 import { isActiveInRange, type DatePreset, type DayRange } from "@/lib/date-range"
 
@@ -139,11 +140,7 @@ export function DashboardPage() {
 
   // Initial SSR mount & Clerk load guard
   if (!mounted || !isLoaded || needsOnboarding) {
-    return (
-      <div className="container mx-auto flex max-w-7xl items-center justify-center px-4 py-16">
-        <div className="border-primary h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" />
-      </div>
-    )
+    return <PageLoader />
   }
 
   // Unauthenticated Protected State

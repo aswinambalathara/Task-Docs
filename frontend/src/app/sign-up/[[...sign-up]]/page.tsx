@@ -10,11 +10,12 @@ import { useSearchParams } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { safeRedirectUrl, withRedirect } from "@/lib/redirect"
+import { PageLoader } from "@/components/layout/page-loader"
 
 export default function SignUpPage() {
   // useSearchParams needs a Suspense boundary to keep the page prerenderable
   return (
-    <React.Suspense>
+    <React.Suspense fallback={<PageLoader />}>
       <SignUpForm />
     </React.Suspense>
   )

@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { authFetch } from "@/lib/api"
 import { MCP_SSE_URL } from "@/lib/mcp"
+import { PageLoader } from "@/components/layout/page-loader"
 
 function MCPAuthContent() {
   const router = useRouter()
@@ -497,13 +498,7 @@ function MCPAuthContent() {
 
 export default function MCPAuthPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      }
-    >
+    <Suspense fallback={<PageLoader />}>
       <MCPAuthContent />
     </Suspense>
   )

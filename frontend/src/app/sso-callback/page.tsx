@@ -1,9 +1,13 @@
 import { AuthenticateWithRedirectCallback } from "@clerk/nextjs"
 
+import { PageLoader } from "@/components/layout/page-loader"
+
 export default function SSOCallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <>
+      {/* The callback renders nothing, so show the loader while it redirects */}
+      <PageLoader />
       <AuthenticateWithRedirectCallback />
-    </div>
+    </>
   )
 }

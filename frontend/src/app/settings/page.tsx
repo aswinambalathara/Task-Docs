@@ -31,6 +31,7 @@ import { useTheme } from "next-themes"
 import { useIntegrationStore, DailyTableCadence, WeeklyDay } from "@/store/useIntegrationStore"
 import { authFetch } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { PageLoader } from "@/components/layout/page-loader"
 import { MCP_SSE_URL } from "@/lib/mcp"
 
 export default function SettingsPage() {
@@ -226,11 +227,7 @@ export default function SettingsPage() {
   }
 
   if (!mounted || !isLoaded) {
-    return (
-      <div className="container mx-auto flex max-w-5xl items-center justify-center px-4 py-16">
-        <div className="border-primary h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" />
-      </div>
-    )
+    return <PageLoader />
   }
 
   if (!isSignedIn) {
