@@ -28,11 +28,11 @@ At the domain's DNS provider:
 
 | Type | Name | Value | TTL |
 |---|---|---|---|
-| A | `tethr` | `80.225.251.247` | 300 |
-| A | `app.tethr` | `80.225.251.247` | 300 |
-| A | `api.tethr` | `80.225.251.247` | 300 |
+| A | `tethr` | `130.210.36.159` | 300 |
+| A | `app.tethr` | `130.210.36.159` | 300 |
+| A | `api.tethr` | `130.210.36.159` | 300 |
 
-Check from any machine: `nslookup app.tethr.aswin-ambalathara.space 1.1.1.1` should answer `80.225.251.247`.
+Check from any machine: `nslookup app.tethr.aswin-ambalathara.space 1.1.1.1` should answer `130.210.36.159`.
 Clerk's production records (step "Clerk production" below) are added here too.
 
 ## One-time Tethr setup on the server
@@ -71,7 +71,7 @@ CLERK_ISSUER=https://clerk.tethr.aswin-ambalathara.space
 CLERK_JWKS_URL=https://clerk.tethr.aswin-ambalathara.space/.well-known/jwks.json
 ```
 
-MongoDB Atlas must allow connections from `80.225.251.247` (Atlas → Network Access).
+MongoDB Atlas must allow connections from `130.210.36.159` (Atlas → Network Access).
 
 **2. Deploy key**, pinned so it can only deploy Tethr. On your own machine, not the server:
 
@@ -135,8 +135,8 @@ without verification (you will see an "unverified app" warning when connecting, 
 | Kind | Name | Value |
 |---|---|---|
 | Secret | `DEPLOY_SSH_KEY` | Contents of the private key `tethr-deploy` |
-| Secret | `DEPLOY_KNOWN_HOSTS` | Output of `ssh-keyscan -t ed25519 80.225.251.247`, after checking its fingerprint matches `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server |
-| Variable | `DEPLOY_HOST` | `80.225.251.247` |
+| Secret | `DEPLOY_KNOWN_HOSTS` | Output of `ssh-keyscan -t ed25519 130.210.36.159`, after checking its fingerprint matches `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server |
+| Variable | `DEPLOY_HOST` | `130.210.36.159` |
 | Variable | `HEALTH_URL` | `https://api.tethr.aswin-ambalathara.space/health` |
 
 **Settings → Secrets and variables → Actions → Variables** (repository level; baked into the web
